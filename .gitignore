@@ -1,0 +1,9 @@
+build/
+__pycache__/
+*.pyc
+*.spec
+dist/VideoScreenshotExtractor.exe
+dist/VideoScreenshotExtractor_v2_0.exe
+dist/VideoScreenshotExtractor_v2_1.exe
+source.mp4
+*.zip
