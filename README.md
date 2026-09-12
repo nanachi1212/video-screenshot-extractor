@@ -36,44 +36,58 @@
 
 ---
 
-## 🛠️ 開發與原始碼執行
+# Video Screenshot Extractor v2.7.0
 
-若要在 Python 開發環境中執行：
+v2.7.0 是一次以「一般使用者可直接安裝使用」為目標的重大更新。
 
-### 需求
-* Windows 10 / 11
-* Python 3.10+
-* 系統環境有 `ffmpeg`、`ffprobe`、`yt-dlp`（或將二進位檔置於專案 `tools/` 目錄下）
+本版本已將主要執行環境與外部工具整合進程式套件中，使用者不再需要自行安裝 FFmpeg、ffprobe、yt-dlp、Deno 或設定 PATH。
 
-### 執行
-```powershell
-python app.py
-```
+## 主要更新
 
-### 執行單元測試
-```powershell
-python -m unittest -v test_gui_core.GuiCoreTests
-```
+### 一鍵安裝，免手動安裝相依工具
 
----
+v2.7.0 已內建：
 
-## 📦 打包與建置 (Build & Packaging)
+- FFmpeg / ffprobe
+- yt-dlp
+- Deno
 
-本專案提供一鍵式自動化建置腳本：
+一般使用者下載安裝版後即可直接使用，不需要再自行安裝上述工具，也不需要另外設定環境變數或 PATH。
 
-1. **準備執行元件**（官方固定版本）：
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\fetch-tools.ps1
-   ```
-   *此腳本會自動下載並校驗官方釋出的 FFmpeg、ffprobe、yt-dlp、Deno 至 `tools/` 目錄。*
+目前內建版本：
 
-2. **建置應用程式與安裝程式**：
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -BuildInstaller
-   ```
-   *將執行單元測試、以 PyInstaller 產出 onedir 免安裝目錄，並呼叫 Inno Setup 編譯安裝程式。*
+- FFmpeg Essentials 9.0.1
+- yt-dlp 2026.08.19
+- Deno 2.9.6
 
----
+### 新增正式 Windows 安裝版
+
+新增：
+
+- `VideoScreenshotExtractor-Setup-v2.7.0.exe`
+
+可透過標準 Windows 安裝程序完成安裝，並建立開始功能表捷徑。
+
+安裝後即可直接使用，不需要 Python 環境。
+
+### 新增 Portable 免安裝版
+
+新增：
+
+- `VideoScreenshotExtractor-Portable-v2.7.0.zip`
+
+解壓縮後即可直接執行，適合不想安裝程式或希望放在隨身碟使用的使用者。
+
+## 輸出與檔案管理改善
+
+### 不再覆蓋舊任務
+
+同一支影片重複執行時，現在會自動建立新的輸出資料夾，例如：
+
+```text
+影片名稱 [video_id]
+影片名稱 [video_id] (2)
+影片名稱 [video_id] (3)
 
 ## 📄 第三方元件與授權 (Third-Party Notices)
 
