@@ -1,4 +1,4 @@
-﻿name: Release Video Screenshot Extractor
+name: Release Video Screenshot Extractor
 
 on:
   push:
@@ -35,25 +35,44 @@ jobs:
           choco install innosetup --no-progress -y
 
       - name: Download Pinned External Tools
+        shell: powershell
         run: |
           powershell -ExecutionPolicy Bypass -File .\scripts\fetch-tools.ps1
 
       - name: Build Onedir & Inno Setup Installer
+        shell: powershell
         run: |
           powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -BuildInstaller
 
       - name: Create Portable Zip
+        shell: powershell
         run: |
-          powershell -Command "Compress-Archive -Path .\dist\VideoScreenshotExtractor\* -DestinationPath .\release\VideoScreenshotExtractor-Portable-${{ github.ref_name }}.zip -Force"
+          $ver = (Get-Content .\VERSION -Raw).Trim()
+          $tagOrVer = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "v$ver" }
+          Compress-Archive -Path .\dist\VideoScreenshotExtractor\* -DestinationPath ".\release\VideoScreenshotExtractor-Portable-$tagOrVer.zip" -Force
 
       - name: Generate Checksums
+        shell: powershell
         run: |
-          powershell -Command "Get-ChildItem .\release | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content .\release\SHA256SUMS.txt"
-          cat .\release\SHA256SUMS.txt
+          Get-ChildItem .\release -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content .\release\SHA256SUMS.txt -Encoding ascii
+          Get-Content .\release\SHA256SUMS.txt
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoScreenshotExtractor-build-artifacts
+          path: |
+            release/*.exe
+            release/*.zip
+            release/SHA256SUMS.txt
+          if-no-files-found: error
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: |
             release/*

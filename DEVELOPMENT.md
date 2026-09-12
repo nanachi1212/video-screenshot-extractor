@@ -1,6 +1,6 @@
 # Video Screenshot Extractor｜DEVELOPMENT
 
-本文件是 `E:\\Codex project\\video_screenshot_gui` 的維護文件。完整功能清單與版本資訊請先查看同一資料夾的 `README.md`。
+本文件是 `video-screenshot-extractor` 的維護文件。完整功能清單與版本資訊請先查看同一資料夾的 `README.md`。
 
 ## 建議流程
 

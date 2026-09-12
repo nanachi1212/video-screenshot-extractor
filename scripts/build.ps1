@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Builds VideoScreenshotExtractor onedir package and optional Inno Setup installer.
 .PARAMETER SkipTests
@@ -143,13 +143,18 @@ if ($BuildInstaller) {
     Write-Host "[5/5] Skipping installer compilation (-BuildInstaller switch not specified). Onedir package is ready." -ForegroundColor Yellow
 }
 
-# Checksum report for any release artifacts
-$releaseArtifacts = Get-ChildItem -Path $releaseDir -Filter "*.exe" -ErrorAction SilentlyContinue
+# Checksum report and standard manifest generation for any release artifacts
+$releaseArtifacts = Get-ChildItem -Path $releaseDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne "SHA256SUMS.txt" }
 if ($releaseArtifacts) {
     Write-Host "`nRelease Artifacts and Checksums:" -ForegroundColor Cyan
-    $releaseArtifacts | ForEach-Object {
-        $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-        $sizeMB = [math]::Round($_.Length / 1MB, 2)
-        Write-Host "$($_.Name) ($sizeMB MB) [SHA-256: $hash]" -ForegroundColor Green
+    $checksumLines = @()
+    foreach ($item in $releaseArtifacts) {
+        $hash = (Get-FileHash $item.FullName -Algorithm SHA256).Hash.ToLower()
+        $sizeMB = [math]::Round($item.Length / 1MB, 2)
+        Write-Host "$($item.Name) ($sizeMB MB) [SHA-256: $hash]" -ForegroundColor Green
+        $checksumLines += "$hash  $($item.Name)"
     }
+    $checksumFile = Join-Path $releaseDir "SHA256SUMS.txt"
+    $checksumLines | Set-Content -Path $checksumFile -Encoding ascii
+    Write-Host "✓ Standard checksum manifest written to $checksumFile" -ForegroundColor Green
 }

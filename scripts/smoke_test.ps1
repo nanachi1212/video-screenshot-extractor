@@ -1,4 +1,5 @@
-$distDir = "F:\Projects\Codex project\video_screenshot_gui\dist\VideoScreenshotExtractor"
+$RepoRoot = (Get-Item "$PSScriptRoot\..").FullName
+$distDir = Join-Path $RepoRoot "dist\VideoScreenshotExtractor"
 $exePath = Join-Path $distDir "VideoScreenshotExtractor.exe"
 
 Write-Host "=== SMOKE TEST: Resolving tools in clean environment ===" -ForegroundColor Cyan
@@ -8,11 +9,11 @@ $cleanEnv = @{
     "PATH" = "C:\Windows\System32;C:\Windows"
 }
 
-# Run a quick python verification inside the clean env using .venv python pointing to dist tools
+# Run a quick python verification inside the clean env using python pointing to dist tools
 $testScript = @"
 import os, sys
 from pathlib import Path
-sys.path.insert(0, r'F:\Projects\Codex project\video_screenshot_gui')
+sys.path.insert(0, r'$RepoRoot')
 import gui_core
 app_dir = Path(r'$distDir')
 tools = gui_core.check_runtime_tools(app_dir)
@@ -27,8 +28,14 @@ assert 'tools' in str(tools['deno'])
 print('ALL_BUNDLED_RESOLVED_OK')
 "@
 
+$pythonExe = "python"
+$venvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+if (Test-Path $venvPython) {
+    $pythonExe = $venvPython
+}
+
 $psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = "F:\Projects\Codex project\video_screenshot_gui\.venv\Scripts\python.exe"
+$psi.FileName = $pythonExe
 $psi.Arguments = "-c `"$testScript`""
 $psi.EnvironmentVariables["PATH"] = "C:\Windows\System32;C:\Windows"
 $psi.UseShellExecute = $false
