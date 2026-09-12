@@ -42,7 +42,7 @@ if (-not $SkipTests) {
     if ($LASTEXITCODE -ne 0) {
         throw "Unit tests failed! Build aborted."
     }
-    Write-Host "✓ All unit tests passed." -ForegroundColor Green
+    Write-Host "[OK] All unit tests passed." -ForegroundColor Green
 } else {
     Write-Host "[1/5] Skipping unit tests." -ForegroundColor DarkGray
 }
@@ -62,7 +62,7 @@ if ($missing) {
     Write-Host "Tools missing in $toolsDir, invoking fetch-tools.ps1 with SHA-256 verification..." -ForegroundColor Yellow
     & "$PSScriptRoot\fetch-tools.ps1"
 } else {
-    Write-Host "✓ All bundled tools present in $toolsDir." -ForegroundColor Green
+    Write-Host "[OK] All bundled tools present in $toolsDir." -ForegroundColor Green
 }
 
 # 3. Locate and run PyInstaller
@@ -95,14 +95,14 @@ if (-not (Test-Path $distToolsDir)) {
 foreach ($t in $requiredTools) {
     Copy-Item -Path (Join-Path $toolsDir $t) -Destination (Join-Path $distToolsDir $t) -Force
 }
-Write-Host "✓ Bundled tools successfully copied to $distToolsDir" -ForegroundColor Green
+Write-Host "[OK] Bundled tools successfully copied to $distToolsDir" -ForegroundColor Green
 
 # Verify output
 $mainExe = Join-Path $distAppDir "VideoScreenshotExtractor.exe"
 if (-not (Test-Path $mainExe)) {
     throw "Expected build artifact $mainExe not found!"
 }
-Write-Host "✓ Onedir application build verified at: $distAppDir" -ForegroundColor Green
+Write-Host "[OK] Onedir application build verified at: $distAppDir" -ForegroundColor Green
 
 # 5. Inno Setup Build (Only when -BuildInstaller is explicitly requested)
 $releaseDir = Join-Path $RepoRoot "release"
@@ -138,7 +138,7 @@ if ($BuildInstaller) {
     if ($LASTEXITCODE -ne 0) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
-    Write-Host "✓ Installer successfully created in $releaseDir" -ForegroundColor Green
+    Write-Host "[OK] Installer successfully created in $releaseDir" -ForegroundColor Green
 } else {
     Write-Host "[5/5] Skipping installer compilation (-BuildInstaller switch not specified). Onedir package is ready." -ForegroundColor Yellow
 }
@@ -156,5 +156,5 @@ if ($releaseArtifacts) {
     }
     $checksumFile = Join-Path $releaseDir "SHA256SUMS.txt"
     $checksumLines | Set-Content -Path $checksumFile -Encoding ascii
-    Write-Host "✓ Standard checksum manifest written to $checksumFile" -ForegroundColor Green
+    Write-Host "[OK] Standard checksum manifest written to $checksumFile" -ForegroundColor Green
 }

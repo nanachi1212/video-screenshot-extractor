@@ -30,29 +30,35 @@ jobs:
         run: |
           python -m unittest -v test_gui_core.GuiCoreTests
 
+      - name: Verify PowerShell Scripts ASCII-only and Syntax
+        shell: pwsh
+        run: |
+          python -c "from pathlib import Path; [(exit(f'Error in {f.name}') if [b for b in f.read_bytes() if b > 127] else None) for f in Path('scripts').glob('*.ps1')]; print('All .ps1 files are 100% ASCII-only.')"
+          powershell.exe -NoProfile -Command "Get-ChildItem 'scripts/*.ps1' | ForEach-Object { `$tokens = `$null; `$errors = `$null; `$null = [System.Management.Automation.Language.Parser]::ParseFile(`$_.FullName, [ref]`$tokens, [ref]`$errors); if (`$errors.Count -gt 0) { throw (`$errors[0].Message) } }; Write-Host 'All .ps1 scripts verified 0 parse errors in Windows PowerShell 5.1.'"
+
       - name: Install Inno Setup
         run: |
           choco install innosetup --no-progress -y
 
       - name: Download Pinned External Tools
-        shell: powershell
+        shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File .\scripts\fetch-tools.ps1
+          pwsh -ExecutionPolicy Bypass -File .\scripts\fetch-tools.ps1
 
       - name: Build Onedir & Inno Setup Installer
-        shell: powershell
+        shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -BuildInstaller
+          pwsh -ExecutionPolicy Bypass -File .\scripts\build.ps1 -BuildInstaller
 
       - name: Create Portable Zip
-        shell: powershell
+        shell: pwsh
         run: |
           $ver = (Get-Content .\VERSION -Raw).Trim()
           $tagOrVer = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "v$ver" }
           Compress-Archive -Path .\dist\VideoScreenshotExtractor\* -DestinationPath ".\release\VideoScreenshotExtractor-Portable-$tagOrVer.zip" -Force
 
       - name: Generate Checksums
-        shell: powershell
+        shell: pwsh
         run: |
           Get-ChildItem .\release -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()

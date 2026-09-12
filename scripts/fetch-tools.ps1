@@ -56,7 +56,7 @@ if ($UseLocalInstalled) {
         $cmd = $LocalCommands[$k]
         if ($cmd) {
             Copy-Item -Path $cmd.Source -Destination (Join-Path $ResolvedTargetDir $k) -Force
-            Write-Host "✓ Copied $k from $($cmd.Source)" -ForegroundColor Green
+            Write-Host "[OK] Copied $k from $($cmd.Source)" -ForegroundColor Green
         } else {
             Write-Warning "Local command for $k not found."
             $allFound = $false
@@ -85,7 +85,7 @@ function Verify-Sha256 {
         Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
         throw "CRITICAL SECURITY FAILURE: SHA-256 hash mismatch for $ItemName!`nExpected: $ExpectedHashClean`nActual:   $ActualHash`nDownload was aborted and untrusted file was deleted."
     }
-    Write-Host "✓ SHA-256 verified for ${ItemName}: $ActualHash" -ForegroundColor Green
+    Write-Host "[OK] SHA-256 verified for ${ItemName}: $ActualHash" -ForegroundColor Green
 }
 
 try {
@@ -98,7 +98,7 @@ try {
         Invoke-WebRequest -Uri $ytInfo.url -OutFile $ytTemp -UseBasicParsing
         Verify-Sha256 -FilePath $ytTemp -ExpectedHash $ytInfo.sha256 -ItemName "yt-dlp.exe"
         Copy-Item -Path $ytTemp -Destination $ytTarget -Force
-        Write-Host "✓ Installed yt-dlp.exe" -ForegroundColor Green
+        Write-Host "[OK] Installed yt-dlp.exe" -ForegroundColor Green
     }
 
     # 2. Deno
@@ -116,7 +116,7 @@ try {
             throw "Failed to locate deno.exe inside extracted archive!"
         }
         Copy-Item -Path $denoExe.FullName -Destination $denoTarget -Force
-        Write-Host "✓ Installed deno.exe" -ForegroundColor Green
+        Write-Host "[OK] Installed deno.exe" -ForegroundColor Green
     }
 
     # 3. FFmpeg & FFprobe (Gyan Essentials)
@@ -137,7 +137,7 @@ try {
         }
         Copy-Item -Path $ffExe.FullName -Destination $ffmpegTarget -Force
         Copy-Item -Path $probeExe.FullName -Destination $ffprobeTarget -Force
-        Write-Host "✓ Installed ffmpeg.exe and ffprobe.exe" -ForegroundColor Green
+        Write-Host "[OK] Installed ffmpeg.exe and ffprobe.exe" -ForegroundColor Green
     }
 
     Write-Host "All bundled tools successfully fetched and verified." -ForegroundColor Green
