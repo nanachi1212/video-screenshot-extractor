@@ -180,6 +180,46 @@ def sanitize_task_name(name: str) -> str:
     return name[:120] or "video"
 
 
+def extract_video_id(url: str) -> str | None:
+    """Extract video identifier from URL if available (e.g. YouTube v parameter or path ID)."""
+    patterns = [
+        r"(?:v=|\/v\/|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})",
+        r"[?&]v=([A-Za-z0-9_-]+)",
+    ]
+    for p in patterns:
+        if m := re.search(p, url):
+            return m.group(1)
+    return None
+
+
+def get_safe_output_dir(base_output: Path, title: str, video_id: str | None = None) -> Path:
+    """
+    Determine a non-destructive output folder path.
+    Format:
+        <title> [<video_id>]  (or <title> if no video_id)
+    If target directory or file already exists, appends ' (2)', ' (3)', etc.
+    Guarantees that existing user outputs are NEVER overwritten or deleted.
+    """
+    clean_title = sanitize_task_name(title)
+    if video_id and video_id.strip():
+        clean_id = sanitize_task_name(video_id.strip())
+        folder_name = f"{clean_title} [{clean_id}]"
+    else:
+        folder_name = clean_title
+
+    candidate = base_output / folder_name
+    if not candidate.exists():
+        return candidate
+
+    counter = 2
+    while True:
+        candidate = base_output / f"{folder_name} ({counter})"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+
 def resolve_task_name(downloader: list[str], url: str, js_runtime: str | None, manual_name: str | None = None) -> str:
     """Retrieve video title or return sanitized manual name."""
     if manual_name and manual_name.strip():

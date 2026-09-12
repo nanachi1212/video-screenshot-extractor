@@ -1,7 +1,10 @@
 ﻿; Script generated for Video Screenshot Extractor (影片配圖擷取器)
+#ifndef MyAppVersion
+#define MyAppVersion "2.7.0"
+#endif
+
 #define MyAppName "Video Screenshot Extractor"
 #define MyAppNameZh "影片配圖擷取器"
-#define MyAppVersion "2.7.0"
 #define MyAppPublisher "nanachi1212"
 #define MyAppURL "https://github.com/nanachi1212/video-screenshot-extractor"
 #define MyAppExeName "VideoScreenshotExtractor.exe"
@@ -27,7 +30,6 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 
 [Languages]
-Name: "chinesetrad"; MessagesFile: "compiler:Languages\ChineseTraditional.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

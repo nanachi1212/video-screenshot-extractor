@@ -19,7 +19,9 @@ from gui_core import (
     count_frames,
     create_job_workspace,
     create_zip,
+    extract_video_id,
     format_summary,
+    get_safe_output_dir,
     kill_process_tree,
     load_output_folder,
     parse_ffmpeg_progress,
@@ -28,12 +30,13 @@ from gui_core import (
     build_download_args,
     save_output_folder,
 )
+from version import APP_NAME_ZH, VERSION
 
 
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("影片配圖擷取器 v2.7.0")
+        self.title(f"{APP_NAME_ZH} v{VERSION}")
         self.geometry("780x560")
         self.minsize(680, 480)
 
@@ -274,10 +277,12 @@ class App(tk.Tk):
             if ret != 0:
                 raise RuntimeError(f"影片下載失敗，yt-dlp 返回碼：{ret}")
 
-            # Target directory under output folder
-            task_output_dir = output / task_name
+            # Non-destructive target directory under output folder
+            video_id = extract_video_id(url)
+            task_output_dir = get_safe_output_dir(output, task_name, video_id)
             task_output_dir.mkdir(parents=True, exist_ok=True)
             self.last_task_dir = task_output_dir
+            self.events.put(("log", f"成果輸出目錄：{task_output_dir}"))
 
             # Stage 3: MP4 and/or MP3 export
             self.events.put(("status", "階段 3/5：正在處理音訊與影片輸出…"))
@@ -338,7 +343,7 @@ class App(tk.Tk):
                     "-i", str(source),
                     "-vf", f"select='gt(scene,{threshold})'",
                     "-progress", "pipe:1",
-                    "-vsync", "0",
+                    "-fps_mode", "passthrough",
                     frame_target_spec,
                 ]
                 proc = popen_silent(extract_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -374,9 +379,12 @@ class App(tk.Tk):
 
                 # Move clean frames to output directory screenshots subfolder
                 target_screenshots_dir = task_output_dir / "screenshots"
-                if target_screenshots_dir.exists():
-                    shutil.rmtree(target_screenshots_dir, ignore_errors=True)
-                shutil.copytree(frames_dir, target_screenshots_dir)
+                if not target_screenshots_dir.exists():
+                    shutil.copytree(frames_dir, target_screenshots_dir)
+                else:
+                    target_screenshots_dir.mkdir(parents=True, exist_ok=True)
+                    for frame_file in frames_dir.glob("*.png"):
+                        shutil.copy2(frame_file, target_screenshots_dir / frame_file.name)
                 self.events.put(("log", f"✓ 圖片已整理至：{target_screenshots_dir}"))
 
             self.events.put(("progress", 100))

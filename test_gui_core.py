@@ -277,6 +277,49 @@ class GuiCoreTests(unittest.TestCase):
         self.assertIn("MP3 音訊：未選擇", summary)
         self.assertIn("圖片 ZIP：已建立", summary)
 
+    # --- Safe Output Directory & Video ID Tests ---
+
+    def test_extract_video_id(self):
+        from gui_core import extract_video_id
+        self.assertEqual(extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "dQw4w9WgXcQ")
+        self.assertEqual(extract_video_id("https://youtu.be/dQw4w9WgXcQ?t=10"), "dQw4w9WgXcQ")
+        self.assertEqual(extract_video_id("https://www.youtube.com/shorts/dQw4w9WgXcQ"), "dQw4w9WgXcQ")
+        self.assertIsNone(extract_video_id("https://example.com/video.mp4"))
+
+    def test_get_safe_output_dir_allocates_fresh_and_sequential_dirs(self):
+        from gui_core import get_safe_output_dir
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            # 1. Fresh directory
+            d1 = get_safe_output_dir(base, "Test Video", "abc12345678")
+            self.assertEqual(d1.name, "Test Video [abc12345678]")
+            d1.mkdir()
+            (d1 / "important_file.txt").write_text("do not touch")
+
+            # 2. Same video processed again: must allocate (2) without touching d1
+            d2 = get_safe_output_dir(base, "Test Video", "abc12345678")
+            self.assertEqual(d2.name, "Test Video [abc12345678] (2)")
+            d2.mkdir()
+
+            # 3. Processed third time: must allocate (3)
+            d3 = get_safe_output_dir(base, "Test Video", "abc12345678")
+            self.assertEqual(d3.name, "Test Video [abc12345678] (3)")
+
+            # Verify existing data untouched
+            self.assertTrue((d1 / "important_file.txt").exists())
+            self.assertEqual((d1 / "important_file.txt").read_text(), "do not touch")
+
+    def test_tools_manifest_integrity(self):
+        import json
+        manifest_path = Path(__file__).parent / "scripts" / "tools_manifest.json"
+        self.assertTrue(manifest_path.is_file(), "tools_manifest.json must exist")
+        data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+        for tool in ("yt-dlp", "deno", "ffmpeg"):
+            self.assertIn(tool, data)
+            self.assertTrue(data[tool]["version"])
+            self.assertTrue(data[tool]["url"].startswith("https://"))
+            self.assertEqual(len(data[tool]["sha256"]), 64, f"Invalid SHA-256 length for {tool}")
+
     # --- Process Killing Pure Logic ---
 
     def test_kill_process_tree_handles_none_and_terminated(self):

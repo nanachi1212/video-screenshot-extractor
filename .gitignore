@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 build/
 dist/
 release/
@@ -6,6 +6,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.venv/
 
 # Bundled tools binaries & temporary files
 tools/

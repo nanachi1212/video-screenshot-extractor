@@ -1,6 +1,7 @@
 ﻿<#
 .SYNOPSIS
-    Downloads and verifies pinned runtime binaries (ffmpeg, ffprobe, yt-dlp, deno) for Windows packaging.
+    Downloads and verifies pinned runtime binaries (ffmpeg, ffprobe, yt-dlp, deno)
+    with strict SHA-256 verification against scripts/tools_manifest.json.
 .PARAMETER TargetDir
     Target directory where executables will be placed (default: <repo_root>/tools).
 .PARAMETER Force
@@ -16,24 +17,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$ManifestPath = Join-Path $PSScriptRoot "tools_manifest.json"
+if (-not (Test-Path $ManifestPath)) {
+    throw "Manifest file not found at $ManifestPath!"
+}
+
+$Manifest = Get-Content $ManifestPath -Raw -Encoding utf8 | ConvertFrom-Json
 $ResolvedTargetDir = (New-Item -ItemType Directory -Path $TargetDir -Force).FullName
 Write-Host "Target tools directory: $ResolvedTargetDir" -ForegroundColor Cyan
 
-$Tools = @{
-    "ffmpeg.exe"  = $false
-    "ffprobe.exe" = $false
-    "yt-dlp.exe"  = $false
-    "deno.exe"    = $false
-}
-
-# Check if all exist
+# Check if all required files exist
+$RequiredFiles = @("ffmpeg.exe", "ffprobe.exe", "yt-dlp.exe", "deno.exe")
 $AllExist = $true
-foreach ($tool in $Tools.Keys) {
-    $dest = Join-Path $ResolvedTargetDir $tool
-    if (Test-Path $dest) {
-        $Tools[$tool] = $true
-    } else {
+foreach ($f in $RequiredFiles) {
+    if (-not (Test-Path (Join-Path $ResolvedTargetDir $f))) {
         $AllExist = $false
+        break
     }
 }
 
@@ -57,7 +56,7 @@ if ($UseLocalInstalled) {
         $cmd = $LocalCommands[$k]
         if ($cmd) {
             Copy-Item -Path $cmd.Source -Destination (Join-Path $ResolvedTargetDir $k) -Force
-            Write-Host "Copied $k from $($cmd.Source)" -ForegroundColor Green
+            Write-Host "✓ Copied $k from $($cmd.Source)" -ForegroundColor Green
         } else {
             Write-Warning "Local command for $k not found."
             $allFound = $false
@@ -70,61 +69,78 @@ if ($UseLocalInstalled) {
     Write-Host "Falling back to downloading official pinned binaries..." -ForegroundColor Yellow
 }
 
-$TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "vse_tool_downloads"
+$TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "vse_tool_downloads_$(Get-Random)"
 $null = New-Item -ItemType Directory -Path $TempDir -Force
 
-# Pinned official URLs
-$YtDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/2025.02.19/yt-dlp.exe"
-$DenoUrl   = "https://github.com/denoland/deno/releases/download/v2.2.3/deno-x86_64-pc-windows-msvc.zip"
-$FFmpegUrl = "https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip"
+function Verify-Sha256 {
+    param(
+        [string]$FilePath,
+        [string]$ExpectedHash,
+        [string]$ItemName
+    )
+    Write-Host "Verifying SHA-256 for $ItemName..." -ForegroundColor Cyan
+    $ActualHash = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $ExpectedHashClean = $ExpectedHash.Trim().ToLowerInvariant()
+    if ($ActualHash -ne $ExpectedHashClean) {
+        Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+        throw "CRITICAL SECURITY FAILURE: SHA-256 hash mismatch for $ItemName!`nExpected: $ExpectedHashClean`nActual:   $ActualHash`nDownload was aborted and untrusted file was deleted."
+    }
+    Write-Host "✓ SHA-256 verified for $ItemName: $ActualHash" -ForegroundColor Green
+}
 
 try {
-    # 1. yt-dlp.exe
-    $ytDlpDest = Join-Path $ResolvedTargetDir "yt-dlp.exe"
-    if (-not (Test-Path $ytDlpDest) -or $Force) {
-        Write-Host "Downloading yt-dlp.exe (2025.02.19)..." -ForegroundColor Cyan
-        Invoke-WebRequest -Uri $YtDlpUrl -OutFile $ytDlpDest -UseBasicParsing
-        Write-Host "✓ yt-dlp.exe downloaded." -ForegroundColor Green
+    # 1. yt-dlp
+    $ytTarget = Join-Path $ResolvedTargetDir "yt-dlp.exe"
+    if (-not (Test-Path $ytTarget) -or $Force) {
+        $ytInfo = $Manifest.'yt-dlp'
+        $ytTemp = Join-Path $TempDir "yt-dlp.exe"
+        Write-Host "Downloading yt-dlp ($($ytInfo.version))..." -ForegroundColor Yellow
+        Invoke-WebRequest -Uri $ytInfo.url -OutFile $ytTemp -UseBasicParsing
+        Verify-Sha256 -FilePath $ytTemp -ExpectedHash $ytInfo.sha256 -ItemName "yt-dlp.exe"
+        Copy-Item -Path $ytTemp -Destination $ytTarget -Force
+        Write-Host "✓ Installed yt-dlp.exe" -ForegroundColor Green
     }
 
-    # 2. deno.exe
-    $denoDest = Join-Path $ResolvedTargetDir "deno.exe"
-    if (-not (Test-Path $denoDest) -or $Force) {
-        Write-Host "Downloading Deno (v2.2.3)..." -ForegroundColor Cyan
+    # 2. Deno
+    $denoTarget = Join-Path $ResolvedTargetDir "deno.exe"
+    if (-not (Test-Path $denoTarget) -or $Force) {
+        $denoInfo = $Manifest.'deno'
         $denoZip = Join-Path $TempDir "deno.zip"
-        Invoke-WebRequest -Uri $DenoUrl -OutFile $denoZip -UseBasicParsing
+        Write-Host "Downloading Deno ($($denoInfo.version))..." -ForegroundColor Yellow
+        Invoke-WebRequest -Uri $denoInfo.url -OutFile $denoZip -UseBasicParsing
+        Verify-Sha256 -FilePath $denoZip -ExpectedHash $denoInfo.sha256 -ItemName "Deno zip archive"
         $denoExtract = Join-Path $TempDir "deno_extracted"
         Expand-Archive -Path $denoZip -DestinationPath $denoExtract -Force
         $denoExe = Get-ChildItem -Path $denoExtract -Filter "deno.exe" -Recurse | Select-Object -First 1
-        if ($denoExe) {
-            Copy-Item -Path $denoExe.FullName -Destination $denoDest -Force
-            Write-Host "✓ deno.exe extracted." -ForegroundColor Green
-        } else {
-            throw "Failed to find deno.exe in extracted archive."
+        if (-not $denoExe) {
+            throw "Failed to locate deno.exe inside extracted archive!"
         }
+        Copy-Item -Path $denoExe.FullName -Destination $denoTarget -Force
+        Write-Host "✓ Installed deno.exe" -ForegroundColor Green
     }
 
-    # 3. ffmpeg.exe & ffprobe.exe
-    $ffmpegDest = Join-Path $ResolvedTargetDir "ffmpeg.exe"
-    $ffprobeDest = Join-Path $ResolvedTargetDir "ffprobe.exe"
-    if (-not (Test-Path $ffmpegDest) -or -not (Test-Path $ffprobeDest) -or $Force) {
-        Write-Host "Downloading FFmpeg (7.1 essentials)..." -ForegroundColor Cyan
-        $ffmpegZip = Join-Path $TempDir "ffmpeg.zip"
-        Invoke-WebRequest -Uri $FFmpegUrl -OutFile $ffmpegZip -UseBasicParsing
-        $ffmpegExtract = Join-Path $TempDir "ffmpeg_extracted"
-        Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegExtract -Force
-        $ffExe = Get-ChildItem -Path $ffmpegExtract -Filter "ffmpeg.exe" -Recurse | Select-Object -First 1
-        $probeExe = Get-ChildItem -Path $ffmpegExtract -Filter "ffprobe.exe" -Recurse | Select-Object -First 1
-        if ($ffExe -and $probeExe) {
-            Copy-Item -Path $ffExe.FullName -Destination $ffmpegDest -Force
-            Copy-Item -Path $probeExe.FullName -Destination $ffprobeDest -Force
-            Write-Host "✓ ffmpeg.exe and ffprobe.exe extracted." -ForegroundColor Green
-        } else {
-            throw "Failed to find ffmpeg.exe or ffprobe.exe in extracted archive."
+    # 3. FFmpeg & FFprobe (Gyan Essentials)
+    $ffmpegTarget = Join-Path $ResolvedTargetDir "ffmpeg.exe"
+    $ffprobeTarget = Join-Path $ResolvedTargetDir "ffprobe.exe"
+    if (-not (Test-Path $ffmpegTarget) -or -not (Test-Path $ffprobeTarget) -or $Force) {
+        $ffInfo = $Manifest.'ffmpeg'
+        $ffZip = Join-Path $TempDir "ffmpeg-essentials.zip"
+        Write-Host "Downloading FFmpeg Essentials ($($ffInfo.version))..." -ForegroundColor Yellow
+        Invoke-WebRequest -Uri $ffInfo.url -OutFile $ffZip -UseBasicParsing
+        Verify-Sha256 -FilePath $ffZip -ExpectedHash $ffInfo.sha256 -ItemName "FFmpeg Essentials zip archive"
+        $ffExtract = Join-Path $TempDir "ffmpeg_extracted"
+        Expand-Archive -Path $ffZip -DestinationPath $ffExtract -Force
+        $ffExe = Get-ChildItem -Path $ffExtract -Filter "ffmpeg.exe" -Recurse | Select-Object -First 1
+        $probeExe = Get-ChildItem -Path $ffExtract -Filter "ffprobe.exe" -Recurse | Select-Object -First 1
+        if (-not $ffExe -or -not $probeExe) {
+            throw "Failed to locate ffmpeg.exe or ffprobe.exe in extracted archive!"
         }
+        Copy-Item -Path $ffExe.FullName -Destination $ffmpegTarget -Force
+        Copy-Item -Path $probeExe.FullName -Destination $ffprobeTarget -Force
+        Write-Host "✓ Installed ffmpeg.exe and ffprobe.exe" -ForegroundColor Green
     }
 
-    Write-Host "All tools successfully provisioned to $ResolvedTargetDir" -ForegroundColor Green
+    Write-Host "All bundled tools successfully fetched and verified." -ForegroundColor Green
 }
 finally {
     Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
