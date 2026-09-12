@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Downloads and verifies pinned runtime binaries (ffmpeg, ffprobe, yt-dlp, deno)
     with strict SHA-256 verification against scripts/tools_manifest.json.
@@ -85,7 +85,7 @@ function Verify-Sha256 {
         Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
         throw "CRITICAL SECURITY FAILURE: SHA-256 hash mismatch for $ItemName!`nExpected: $ExpectedHashClean`nActual:   $ActualHash`nDownload was aborted and untrusted file was deleted."
     }
-    Write-Host "✓ SHA-256 verified for $ItemName: $ActualHash" -ForegroundColor Green
+    Write-Host "✓ SHA-256 verified for ${ItemName}: $ActualHash" -ForegroundColor Green
 }
 
 try {

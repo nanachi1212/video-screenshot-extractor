@@ -114,7 +114,7 @@ if ($BuildInstaller) {
         "ISCC.exe",
         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
         "C:\Program Files\Inno Setup 6\ISCC.exe",
-        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+        "$($env:LOCALAPPDATA)\Programs\Inno Setup 6\ISCC.exe"
     )
     $isccPath = $null
     foreach ($cand in $isccCandidates) {
