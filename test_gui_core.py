@@ -1,10 +1,35 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import gui_core
-from gui_core import build_download_args, clear_source_work_files, create_zip, find_deno, find_ytdlp, load_output_folder, parse_ffmpeg_progress, resolve_task_name, sanitize_task_name, save_output_folder
+from gui_core import (
+    build_download_args,
+    check_runtime_tools,
+    classify_error,
+    cleanup_job_workspace,
+    clear_source_work_files,
+    count_frames,
+    create_job_workspace,
+    create_zip,
+    find_deno,
+    find_ffmpeg,
+    find_ffprobe,
+    find_ytdlp,
+    format_summary,
+    get_subprocess_silent_flags,
+    kill_process_tree,
+    load_output_folder,
+    parse_ffmpeg_progress,
+    resolve_task_name,
+    resolve_tool,
+    sanitize_task_name,
+    save_output_folder,
+)
 
 
 class GuiCoreTests(unittest.TestCase):
@@ -49,13 +74,65 @@ class GuiCoreTests(unittest.TestCase):
 
     def test_auto_task_name_uses_title(self):
         result = type("Result", (), {"stdout": "A\nTitle\n", "stderr": ""})()
-        with patch("gui_core.subprocess.run", return_value=result) as run:
+        with patch("gui_core.run_silent", return_value=result) as run:
             self.assertEqual(resolve_task_name(["yt-dlp"], "url", r"C:\deno.exe"), "Title")
             run.assert_called_once()
 
+    def test_sanitize_task_name_removes_illegal_characters(self):
+        self.assertEqual(sanitize_task_name('foo:bar*baz?test"one<two>three|four'), "foo_bar_baz_test_one_two_three_four")
+        self.assertEqual(sanitize_task_name("   .name.  "), "name")
+        self.assertEqual(sanitize_task_name(""), "video")
+
+    # --- Tool Resolver & Priority Tests ---
+
+    def test_resolve_tool_bundled_in_tools_has_top_priority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app_dir = Path(tmp)
+            bundled_tools = app_dir / "tools"
+            bundled_tools.mkdir(parents=True)
+            bundled_bin = bundled_tools / "ffmpeg.exe"
+            bundled_bin.write_text("fake binary")
+
+            with patch("shutil.which", return_value=r"C:\Windows\System32\ffmpeg.exe"):
+                resolved = resolve_tool("ffmpeg", app_dir=app_dir)
+                self.assertEqual(resolved, str(bundled_bin.resolve()))
+
+    def test_resolve_tool_bundled_in_app_dir_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app_dir = Path(tmp)
+            bundled_bin = app_dir / "ffmpeg.exe"
+            bundled_bin.write_text("fake binary")
+
+            with patch("shutil.which", return_value=r"C:\Windows\System32\ffmpeg.exe"):
+                resolved = resolve_tool("ffmpeg", app_dir=app_dir)
+                self.assertEqual(resolved, str(bundled_bin.resolve()))
+
+    def test_resolve_tool_falls_back_to_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app_dir = Path(tmp)  # Empty app_dir, no bundled tools
+            with patch("shutil.which", return_value=r"C:\tools\ffmpeg.exe"):
+                resolved = resolve_tool("ffmpeg", app_dir=app_dir)
+                self.assertEqual(resolved, str(Path(r"C:\tools\ffmpeg.exe").resolve()))
+
+    def test_resolve_tool_missing_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app_dir = Path(tmp)
+            with patch("shutil.which", return_value=None), patch.dict("os.environ", {"LOCALAPPDATA": "", "APPDATA": ""}):
+                self.assertIsNone(resolve_tool("ffmpeg", app_dir=app_dir))
+                self.assertIsNone(resolve_tool("nonexistent", app_dir=app_dir))
+
+    def test_check_runtime_tools_returns_all_keys(self):
+        with patch("gui_core.resolve_tool") as mock_resolve:
+            mock_resolve.side_effect = lambda name, app_dir=None: f"/resolved/{name}"
+            tools = check_runtime_tools()
+            self.assertEqual(tools["ffmpeg"], "/resolved/ffmpeg")
+            self.assertEqual(tools["ffprobe"], "/resolved/ffprobe")
+            self.assertEqual(tools["yt-dlp"], "/resolved/yt-dlp")
+            self.assertEqual(tools["deno"], "/resolved/deno")
+
     def test_find_ytdlp_from_path(self):
         with patch("shutil.which", return_value=r"C:\tools\yt-dlp.exe"):
-            self.assertEqual(find_ytdlp(), r"C:\tools\yt-dlp.exe")
+            self.assertEqual(find_ytdlp(), str(Path(r"C:\tools\yt-dlp.exe").resolve()))
 
     def test_find_ytdlp_from_localappdata(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -63,7 +140,7 @@ class GuiCoreTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.touch()
             with patch.dict("os.environ", {"LOCALAPPDATA": tmp, "APPDATA": ""}, clear=False), patch("shutil.which", return_value=None):
-                self.assertEqual(find_ytdlp(), str(path))
+                self.assertEqual(find_ytdlp(), str(path.resolve()))
 
     def test_find_ytdlp_from_appdata(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,7 +148,7 @@ class GuiCoreTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.touch()
             with patch.dict("os.environ", {"LOCALAPPDATA": "", "APPDATA": tmp}, clear=False), patch("shutil.which", return_value=None):
-                self.assertEqual(find_ytdlp(), str(path))
+                self.assertEqual(find_ytdlp(), str(path.resolve()))
 
     def test_find_ytdlp_missing(self):
         with patch("shutil.which", return_value=None), patch.dict("os.environ", {"LOCALAPPDATA": "", "APPDATA": ""}, clear=False):
@@ -79,7 +156,7 @@ class GuiCoreTests(unittest.TestCase):
 
     def test_find_deno_from_path(self):
         with patch("shutil.which", return_value=r"C:\deno.exe"):
-            self.assertEqual(find_deno(), r"C:\deno.exe")
+            self.assertEqual(find_deno(), str(Path(r"C:\deno.exe").resolve()))
 
     def test_find_deno_from_user_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -87,23 +164,88 @@ class GuiCoreTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.touch()
             with patch("shutil.which", return_value=None), patch("pathlib.Path.home", return_value=Path(tmp)):
-                self.assertEqual(find_deno(), str(path))
+                self.assertEqual(find_deno(), str(path.resolve()))
 
     def test_find_deno_missing(self):
         with patch("shutil.which", return_value=None), patch("pathlib.Path.home", return_value=Path(tempfile.mkdtemp())):
             self.assertIsNone(find_deno())
 
-    def test_parse_ffmpeg_progress_returns_percentage(self):
-        self.assertEqual(parse_ffmpeg_progress("frame=  120 fps=30 time=00:01:00.00"), 50)
+    # --- Windows Silent Process Flags ---
+
+    def test_silent_subprocess_flags(self):
+        flags = get_subprocess_silent_flags()
+        if sys.platform == "win32":
+            self.assertIn("creationflags", flags)
+            self.assertEqual(flags["creationflags"] & subprocess.CREATE_NO_WINDOW, subprocess.CREATE_NO_WINDOW)
+            self.assertIn("startupinfo", flags)
+            si = flags["startupinfo"]
+            self.assertTrue(si.dwFlags & subprocess.STARTF_USESHOWWINDOW)
+            self.assertEqual(si.wShowWindow, 0)
+        else:
+            self.assertEqual(flags, {})
+
+    # --- Job Workspace Isolation & Frame Counting ---
+
+    def test_create_and_cleanup_job_workspace(self):
+        ws = create_job_workspace()
+        self.assertTrue(ws.is_dir())
+        self.assertTrue((ws / "frames").is_dir())
+        cleanup_job_workspace(ws)
+        self.assertFalse(ws.exists())
+
+    def test_cleanup_job_workspace_none_safe(self):
+        cleanup_job_workspace(None)
+
+    def test_count_frames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            self.assertEqual(count_frames(folder), 0)
+            (folder / "frame_0001.png").touch()
+            (folder / "frame_0002.png").touch()
+            (folder / "other.txt").touch()
+            self.assertEqual(count_frames(folder), 2)
+
+    def test_old_images_do_not_pollute_new_job_zip(self):
+        """Verify that a second job never contains remnants of a previous run."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Job 1: 15 frames
+            ws1 = root / "ws1"
+            ws1_frames = ws1 / "frames"
+            ws1_frames.mkdir(parents=True)
+            for i in range(1, 16):
+                (ws1_frames / f"frame_{i:04d}.png").write_bytes(f"job1_frame{i}".encode())
+            zip1 = create_zip(ws1_frames, target_zip=ws1 / "test_screenshots.zip")
+            self.assertEqual(count_frames(ws1_frames), 15)
+
+            # Job 2: 5 frames
+            ws2 = root / "ws2"
+            ws2_frames = ws2 / "frames"
+            ws2_frames.mkdir(parents=True)
+            for i in range(1, 6):
+                (ws2_frames / f"frame_{i:04d}.png").write_bytes(f"job2_frame{i}".encode())
+            zip2 = create_zip(ws2_frames, target_zip=ws2 / "test_screenshots.zip")
+            self.assertEqual(count_frames(ws2_frames), 5)
+
+            # Open zip2 and check exact file list
+            from zipfile import ZipFile
+            with ZipFile(zip2, "r") as z:
+                names = z.namelist()
+                self.assertEqual(len(names), 5)
+                self.assertEqual(names, [f"frame_{i:04d}.png" for i in range(1, 6)])
 
     def test_create_zip_contains_extracted_frames(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
-            (folder / "frame_01.png").write_bytes(b"one")
-            (folder / "frame_02.png").write_bytes(b"two")
+            (folder / "frame_0001.png").write_bytes(b"one")
+            (folder / "frame_0002.png").write_bytes(b"two")
             archive = create_zip(folder)
             self.assertTrue(archive.exists())
             self.assertEqual(archive.name, folder.name + ".zip")
+
+    def test_parse_ffmpeg_progress_returns_percentage(self):
+        self.assertEqual(parse_ffmpeg_progress("frame=  120 fps=30 time=00:01:00.00"), 50)
+        self.assertIsNone(parse_ffmpeg_progress("random noise"))
 
     def test_output_folder_is_remembered(self):
         original = gui_core.SETTINGS_FILE
@@ -113,6 +255,38 @@ class GuiCoreTests(unittest.TestCase):
             self.assertEqual(load_output_folder(), "C:/Videos/frames")
         gui_core.SETTINGS_FILE = original
 
+    # --- Error Classification Tests ---
+
+    def test_classify_error_recognizes_common_issues(self):
+        self.assertIn("403 Forbidden", classify_error("HTTP Error 403: Forbidden"))
+        self.assertIn("私人影片", classify_error("This video is a private video. Sign in to view"))
+        self.assertIn("不存在或已被移除", classify_error("ERROR: Video unavailable 404"))
+        self.assertIn("硬碟儲存空間不足", classify_error("No space left on device"))
+        self.assertIn("存取被拒", classify_error("Permission denied: 'C:\\test'"))
+        self.assertIn("網路連線失敗", classify_error("Network connection timed out"))
+        self.assertIn("Deno", classify_error("yt-dlp requested js-runtimes deno"))
+        self.assertIn("FFmpeg", classify_error("ffmpeg returned exit code 1"))
+
+    # --- Summary Formatter ---
+
+    def test_format_summary(self):
+        summary = format_summary(elapsed_seconds=92.5, frame_count=38, has_mp4=True, has_mp3=False, has_zip=True)
+        self.assertIn("1 分 32 秒", summary)
+        self.assertIn("38 張", summary)
+        self.assertIn("MP4 影片：已儲存", summary)
+        self.assertIn("MP3 音訊：未選擇", summary)
+        self.assertIn("圖片 ZIP：已建立", summary)
+
+    # --- Process Killing Pure Logic ---
+
+    def test_kill_process_tree_handles_none_and_terminated(self):
+        kill_process_tree(None)
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 0
+        kill_process_tree(mock_proc)
+        mock_proc.kill.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -1,9 +1,18 @@
+﻿# Python
 build/
+dist/
+release/
 __pycache__/
-*.pyc
-*.spec
-dist/VideoScreenshotExtractor.exe
-dist/VideoScreenshotExtractor_v2_0.exe
-dist/VideoScreenshotExtractor_v2_1.exe
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Bundled tools binaries & temporary files
+tools/
+vse_job_*
 source.mp4
+*.part
 *.zip
+
+# Settings & local configuration
+.video_screenshot_gui.json
