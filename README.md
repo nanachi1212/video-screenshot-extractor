@@ -60,6 +60,20 @@ https://www.threads.com/share/SHARE_CODE/
 
 ---
 
+### Facebook 公開影片下載
+
+可直接貼上常見公開 Facebook 影片網址，例如：
+
+```text
+https://www.facebook.com/reel/VIDEO_ID/
+https://www.facebook.com/watch/?v=VIDEO_ID
+https://www.facebook.com/PAGE/videos/VIDEO_ID/
+```
+
+使用 yt-dlp 內建 Facebook extractor，不需要額外 plugin。v2.8.0 已實機驗證公開 Reel 可完成標題解析、MP4 下載與 FFmpeg 場景截圖。需要登入、私人、已刪除或 Facebook 目前無法解析的影片不在本版保證範圍內。
+
+---
+
 ### X / Twitter 公開影片下載
 
 可直接貼上公開 X / Twitter 影片貼文網址，例如：
@@ -199,7 +213,7 @@ VideoScreenshotExtractor-Setup
 例如目前版本：
 
 ```text
-VideoScreenshotExtractor-Setup-v2.7.0.exe
+VideoScreenshotExtractor-Setup-v2.8.0.exe
 ```
 
 安裝後可從：
@@ -224,7 +238,7 @@ VideoScreenshotExtractor-Portable
 例如：
 
 ```text
-VideoScreenshotExtractor-Portable-v2.7.0.zip
+VideoScreenshotExtractor-Portable-v2.8.0.zip
 ```
 
 解壓縮後即可使用。
@@ -365,6 +379,37 @@ Example Video [abc123]\
 
 ---
 
+# 🆕 v2.8.0 主要更新
+
+v2.8.0 將影片下載能力從原有來源擴充到 **Threads、Facebook 與 X / Twitter 公開影片**，並完成 Windows 實機下載與場景截圖驗證。
+
+主要改善包括：
+
+- 新增 Threads 公開影片貼文下載，正式版內建 Threads yt-dlp extractor plugin
+- 新增 Facebook 公開 Reel、Watch 與影片頁面支援
+- 新增 X / Twitter 公開影片貼文支援
+- Threads、Facebook、X / Twitter 可從網址擷取穩定的貼文／影片 ID，輸出目錄更容易辨識
+- 同一影片重跑仍使用 `(2)`、`(3)` 等新資料夾，不覆蓋舊成果
+- 改善 Threads、Facebook、X / Twitter 的登入限制、不可見、無影片、403、429 等錯誤訊息
+- yt-dlp 失敗時保留更完整的 extractor 錯誤資訊供 GUI 顯示與除錯
+- 修正 Threads plugin 搜尋與正式打包目錄
+- Pull Request 現在會自動執行 Windows 測試與完整建置驗證
+- 核心單元測試提升至 **45 項**
+
+實機驗證包含：
+
+- Threads：公開影片 MP4 下載與 FFmpeg 場景截圖成功
+- Facebook：公開 Reel MP4 下載與 FFmpeg 場景截圖成功
+- X / Twitter：公開影片 MP4 下載與 FFmpeg 場景截圖成功
+
+本版仍以**免登入可觀看的公開影片**為主要範圍，不提供 DRM、私人內容或帳號權限繞過。
+
+完整版本差異：
+
+**[v2.7.0 → v2.8.0](https://github.com/nanachi1212/video-screenshot-extractor/compare/v2.7.0...v2.8.0)**
+
+---
+
 # 🆕 v2.7.0 主要更新
 
 v2.7.0 是一次以「一般使用者可以直接安裝使用」為主要目標的產品化更新。
@@ -403,7 +448,7 @@ v2.7.0 是一次以「一般使用者可以直接安裝使用」為主要目標�
 
 # 🧩 內建執行元件
 
-目前 v2.7.0 使用：
+目前 v2.8.0 使用：
 
 | 元件 | 版本 | 用途 |
 |---|---:|---|
@@ -431,7 +476,7 @@ SHA256SUMS.txt
 在 Windows PowerShell 中執行：
 
 ```powershell
-Get-FileHash ".\VideoScreenshotExtractor-Setup-v2.7.0.exe" -Algorithm SHA256
+Get-FileHash ".\VideoScreenshotExtractor-Setup-v2.8.0.exe" -Algorithm SHA256
 ```
 
 將結果與：
@@ -477,7 +522,7 @@ SHA256SUMS.txt
 目前核心測試：
 
 ```text
-35 / 35 PASS
+45 / 45 PASS
 ```
 
 可執行：
@@ -604,7 +649,7 @@ Inno Setup 6
 每次正式版本 tag，例如：
 
 ```text
-v2.7.0
+v2.8.0
 ```
 
 推送到 GitHub 後，GitHub Actions 會自動執行：
