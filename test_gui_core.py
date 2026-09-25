@@ -71,6 +71,13 @@ class GuiCoreTests(unittest.TestCase):
         self.assertNotIn("--cookies-from-browser", args)
         self.assertFalse(any("cookie" in arg.lower() for arg in args))
 
+    def test_x_download_command_does_not_use_cookies_by_default(self):
+        args = build_download_args(
+            ["yt-dlp"], "source.mp4", "https://x.com/historyinmemes/status/1790637656616943991"
+        )
+        self.assertNotIn("--cookies-from-browser", args)
+        self.assertFalse(any("cookie" in arg.lower() for arg in args))
+
     def test_resolve_ytdlp_plugin_dir_returns_search_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "plugins" / "threads" / "yt_dlp_plugins" / "extractor").mkdir(parents=True)
@@ -299,6 +306,13 @@ class GuiCoreTests(unittest.TestCase):
         self.assertIn("Threads", classify_error('Post "ABC" was not found. It may be private or login-gated.'))
         self.assertIn("沒有可下載的影片", classify_error('Post "ABC" has no downloadable video (an image post)'))
 
+    def test_classify_error_recognizes_x_failures(self):
+        self.assertIn("受保護", classify_error("[twitter] You are not authorized to view this protected tweet"))
+        self.assertIn("限制請求頻率", classify_error("[twitter] HTTP Error 429: Too Many Requests"))
+        self.assertIn("沒有可下載的影片", classify_error("[twitter] No video could be found in this tweet"))
+        self.assertIn("已刪除", classify_error("[twitter] Tweet unavailable: not found"))
+        self.assertIn("X 拒絕存取", classify_error("[twitter] HTTP Error 403: Forbidden"))
+
     def test_classify_error_recognizes_facebook_failures(self):
         self.assertIn("需要登入", classify_error("[facebook] Login required to view this video"))
         self.assertIn("Facebook 拒絕存取", classify_error("[facebook] HTTP Error 403: Forbidden"))
@@ -348,6 +362,22 @@ class GuiCoreTests(unittest.TestCase):
             "1402267627510544",
         )
         self.assertEqual(extract_video_id("https://fb.watch/OVML2ry9RR/"), "OVML2ry9RR")
+        self.assertEqual(
+            extract_video_id("https://x.com/historyinmemes/status/1790637656616943991"),
+            "1790637656616943991",
+        )
+        self.assertEqual(
+            extract_video_id("https://twitter.com/CTVJLaidlaw/status/1600649710662213632/video/2"),
+            "1600649710662213632",
+        )
+        self.assertEqual(
+            extract_video_id("https://x.com/i/web/status/2001950365332455490"),
+            "2001950365332455490",
+        )
+        self.assertEqual(
+            extract_video_id("https://twitter.com/i/videos/tweet/705235433198714880"),
+            "705235433198714880",
+        )
         self.assertIsNone(extract_video_id("https://example.com/video.mp4"))
 
     def test_get_safe_output_dir_allocates_fresh_and_sequential_dirs(self):
@@ -388,6 +418,21 @@ class GuiCoreTests(unittest.TestCase):
             self.assertEqual(second.name, "Public Reel [1402267627510544] (2)")
             second.mkdir()
 
+            self.assertEqual(marker.read_text(encoding="utf-8"), "previous run")
+
+    def test_x_output_folder_uses_status_id_and_preserves_previous_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            url = "https://x.com/historyinmemes/status/1790637656616943991"
+            video_id = extract_video_id(url)
+            first = get_safe_output_dir(base, "Public X Video", video_id)
+            self.assertEqual(first.name, "Public X Video [1790637656616943991]")
+            first.mkdir()
+            marker = first / "keep.txt"
+            marker.write_text("previous run", encoding="utf-8")
+
+            second = get_safe_output_dir(base, "Public X Video", video_id)
+            self.assertEqual(second.name, "Public X Video [1790637656616943991] (2)")
             self.assertEqual(marker.read_text(encoding="utf-8"), "previous run")
 
     def test_threads_plugin_is_vendored(self):
