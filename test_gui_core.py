@@ -88,7 +88,7 @@ class GuiCoreTests(unittest.TestCase):
         self.assertEqual(resolve_task_name(["unused"], "url", None, "my:video"), "my_video")
 
     def test_auto_task_name_uses_title(self):
-        result = type("Result", (), {"stdout": "A\nTitle\n", "stderr": ""})()
+        result = type("Result", (), {"stdout": "A\nTitle\n", "stderr": "", "returncode": 0})()
         with patch("gui_core.run_silent", return_value=result) as run:
             self.assertEqual(resolve_task_name(["yt-dlp"], "url", r"C:\deno.exe"), "Title")
             run.assert_called_once()
@@ -337,6 +337,11 @@ class GuiCoreTests(unittest.TestCase):
             # Verify existing data untouched
             self.assertTrue((d1 / "important_file.txt").exists())
             self.assertEqual((d1 / "important_file.txt").read_text(), "do not touch")
+
+    def test_threads_plugin_is_vendored(self):
+        plugin_path = Path(__file__).parent / "plugins" / "yt_dlp_plugins" / "extractor" / "threads.py"
+        self.assertTrue(plugin_path.is_file())
+        self.assertIn("class ThreadsIE", plugin_path.read_text(encoding="utf-8"))
 
     def test_tools_manifest_integrity(self):
         import json
