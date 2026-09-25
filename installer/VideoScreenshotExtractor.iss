@@ -1,6 +1,6 @@
 ﻿; Script generated for Video Screenshot Extractor (影片配圖擷取器)
 #ifndef MyAppVersion
-#define MyAppVersion "2.7.0"
+#define MyAppVersion "2.8.0"
 #endif
 
 #define MyAppName "Video Screenshot Extractor"
