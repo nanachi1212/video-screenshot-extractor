@@ -181,10 +181,12 @@ def sanitize_task_name(name: str) -> str:
 
 
 def extract_video_id(url: str) -> str | None:
-    """Extract video identifier from URL if available (e.g. YouTube v parameter or path ID)."""
+    """Extract a stable video/post identifier from supported URL shapes when available."""
     patterns = [
         r"(?:v=|\/v\/|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})",
         r"[?&]v=([A-Za-z0-9_-]+)",
+        r"threads\.(?:com|net)\/(?:@[^/?#]+\/post|t)\/([A-Za-z0-9_-]+)",
+        r"threads\.(?:com|net)\/share\/([A-Za-z0-9_-]+)",
     ]
     for p in patterns:
         if m := re.search(p, url):
@@ -220,25 +222,50 @@ def get_safe_output_dir(base_output: Path, title: str, video_id: str | None = No
 
 
 
-def resolve_task_name(downloader: list[str], url: str, js_runtime: str | None, manual_name: str | None = None) -> str:
+def build_ytdlp_common_args(js_runtime: str | None = None, plugin_dir: str | None = None) -> list[str]:
+    """Build shared yt-dlp options for bundled runtime and extractor plugins."""
+    args: list[str] = []
+    if plugin_dir:
+        args.extend(["--plugin-dirs", plugin_dir])
+    if js_runtime:
+        args.extend(["--js-runtimes", f"deno:{js_runtime}"])
+    return args
+
+
+def resolve_task_name(
+    downloader: list[str],
+    url: str,
+    js_runtime: str | None,
+    manual_name: str | None = None,
+    plugin_dir: str | None = None,
+) -> str:
     """Retrieve video title or return sanitized manual name."""
     if manual_name and manual_name.strip():
         return sanitize_task_name(manual_name)
-    runtime = ["--js-runtimes", f"deno:{js_runtime}"] if js_runtime else []
+    common = build_ytdlp_common_args(js_runtime, plugin_dir)
     result = run_silent(
-        downloader + runtime + ["--no-playlist", "--get-title", url],
+        downloader + common + ["--no-playlist", "--get-title", url],
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(detail or f"無法取得影片資訊，yt-dlp 返回碼：{result.returncode}")
     lines = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
     return sanitize_task_name(lines[-1] if lines else "video")
 
 
-def build_download_args(downloader: list[str], source: str, url: str, js_runtime: str | None = None) -> list[str]:
+def build_download_args(
+    downloader: list[str],
+    source: str,
+    url: str,
+    js_runtime: str | None = None,
+    plugin_dir: str | None = None,
+) -> list[str]:
     """Construct yt-dlp arguments for downloading video with best video + best audio merged into mp4."""
-    runtime = ["--js-runtimes", f"deno:{js_runtime}"] if js_runtime else []
-    return downloader + runtime + [
+    common = build_ytdlp_common_args(js_runtime, plugin_dir)
+    return downloader + common + [
         "--newline",
         "--no-playlist",
         "-f",
@@ -309,6 +336,10 @@ def classify_error(exc: Exception | str) -> str:
         return "存取被拒 (403 Forbidden)。影片下載權限受限或 URL 憑據過期，請確認影片權限或更新工具。"
     if "private video" in msg or "sign in" in msg or "members-only" in msg or "login" in msg:
         return "無法存取該影片：此影片為私人影片、會員專屬或需要登入方可觀看。"
+    if "post" in msg and ("private" in msg or "login-gated" in msg):
+        return "無法存取這則 Threads 貼文：貼文可能是私人內容、需要登入，或已被移除。"
+    if "no downloadable video" in msg or "contains no videos" in msg:
+        return "這則 Threads 貼文沒有可下載的影片，可能是純圖片、純文字或目前不支援的貼文類型。"
     if "video unavailable" in msg or "not found" in msg or "404" in msg:
         return "影片不存在或已被移除。"
     if "js-runtimes" in msg or "deno" in msg or "challenge" in msg or "bot" in msg:
