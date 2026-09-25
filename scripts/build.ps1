@@ -97,6 +97,17 @@ foreach ($t in $requiredTools) {
 }
 Write-Host "[OK] Bundled tools successfully copied to $distToolsDir" -ForegroundColor Green
 
+# Copy bundled yt-dlp extractor plugins (for example Threads support)
+$pluginsSource = Join-Path $RepoRoot "plugins"
+$pluginsTarget = Join-Path $distAppDir "plugins"
+if (Test-Path $pluginsSource) {
+    if (Test-Path $pluginsTarget) {
+        Remove-Item -Path $pluginsTarget -Recurse -Force
+    }
+    Copy-Item -Path $pluginsSource -Destination $pluginsTarget -Recurse -Force
+    Write-Host "[OK] Bundled yt-dlp plugins copied to $pluginsTarget" -ForegroundColor Green
+}
+
 # Verify output
 $mainExe = Join-Path $distAppDir "VideoScreenshotExtractor.exe"
 if (-not (Test-Path $mainExe)) {
