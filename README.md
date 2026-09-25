@@ -20,6 +20,21 @@
 
 ---
 
+## 🔏 Code signing policy
+
+Windows release signing policy: **[CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md)**
+
+> Free code signing provided by SignPath.io, certificate by SignPath Foundation
+
+This project is individually maintained by [nanachi1212](https://github.com/nanachi1212), who currently serves as committer/reviewer and signing approver. The project is applying to the SignPath Foundation open-source program; releases published before approval may remain unsigned.
+
+- **Official downloads:** [DOWNLOAD.md](DOWNLOAD.md)
+- **Privacy policy:** [PRIVACY.md](PRIVACY.md)
+- **License:** [MIT License](LICENSE)
+
+
+---
+
 ## ✨ 核心特色
 
 ### 📦 開箱即用
@@ -780,7 +795,7 @@ tag 上建立。
 
 本專案本身採用：
 
-**MIT License**
+**[MIT License](LICENSE)**
 
 第三方執行元件仍分別遵循各自的授權條款。
 
