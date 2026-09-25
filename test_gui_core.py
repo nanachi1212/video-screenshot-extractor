@@ -27,6 +27,7 @@ from gui_core import (
     load_output_folder,
     parse_ffmpeg_progress,
     resolve_task_name,
+    resolve_ytdlp_plugin_dir,
     resolve_tool,
     sanitize_task_name,
     save_output_folder,
@@ -48,18 +49,23 @@ class GuiCoreTests(unittest.TestCase):
         self.assertNotIn("--js-runtimes", args)
 
     def test_ytdlp_common_args_adds_bundled_plugin_dir(self):
-        args = build_ytdlp_common_args(r"C:\deno.exe", r"C:\app\plugins")
+        args = build_ytdlp_common_args(r"C:\deno.exe", r"C:\app")
         self.assertEqual(
             args,
-            ["--plugin-dirs", r"C:\app\plugins", "--js-runtimes", r"deno:C:\deno.exe"],
+            ["--plugin-dirs", r"C:\app", "--js-runtimes", r"deno:C:\deno.exe"],
         )
 
     def test_download_command_adds_threads_plugin_dir(self):
         args = build_download_args(
             ["yt-dlp"], "source.mp4", "https://www.threads.com/@demo/post/ABC123",
-            plugin_dir=r"C:\app\plugins",
+            plugin_dir=r"C:\app",
         )
-        self.assertEqual(args[1:3], ["--plugin-dirs", r"C:\app\plugins"])
+        self.assertEqual(args[1:3], ["--plugin-dirs", r"C:\app"])
+
+    def test_resolve_ytdlp_plugin_dir_returns_search_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "plugins" / "yt_dlp_plugins" / "extractor").mkdir(parents=True)
+            self.assertEqual(resolve_ytdlp_plugin_dir(Path(tmp)), tmp)
 
     def test_clear_source_work_files_removes_source_and_part_only(self):
         with tempfile.TemporaryDirectory() as tmp:
