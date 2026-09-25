@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from zipfile import ZIP_DEFLATED, ZipFile
 
 SETTINGS_FILE = Path.home() / ".video_screenshot_gui.json"
@@ -182,6 +183,25 @@ def sanitize_task_name(name: str) -> str:
 
 def extract_video_id(url: str) -> str | None:
     """Extract a stable video/post identifier from supported URL shapes when available."""
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    if host == "fb.watch":
+        return next((part for part in parsed.path.split("/") if part), None)
+    if host == "facebook.com" or host.endswith(".facebook.com") or host == "fb.com":
+        query = parse_qs(parsed.query)
+        if video_id := next(iter(query.get("v", [])), None):
+            return video_id
+        for pattern in (
+            r"/(?:[^/]+/)?(?:reel|videos?|posts)/([A-Za-z0-9_-]+)",
+            r"/share/[rv]/([A-Za-z0-9_-]+)",
+            r"/story\.php$",
+        ):
+            if match := re.search(pattern, parsed.path, re.IGNORECASE):
+                if match.lastindex:
+                    return match.group(1)
+                if story_id := next(iter(query.get("story_fbid", [])), None):
+                    return story_id
+
     patterns = [
         r"(?:v=|\/v\/|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})",
         r"[?&]v=([A-Za-z0-9_-]+)",
@@ -224,8 +244,8 @@ def get_safe_output_dir(base_output: Path, title: str, video_id: str | None = No
 
 def resolve_ytdlp_plugin_dir(app_dir: Path) -> str | None:
     """Return the directory yt-dlp must search for the bundled plugin namespace."""
-    if (app_dir / "plugins" / "yt_dlp_plugins").is_dir():
-        return str(app_dir)
+    if any((app_dir / "plugins").glob("*/yt_dlp_plugins")):
+        return str(app_dir / "plugins")
     return None
 
 
@@ -339,6 +359,19 @@ def classify_error(exc: Exception | str) -> str:
     while retaining context.
     """
     msg = str(exc).lower()
+    is_facebook = "facebook" in msg or "fb.watch" in msg or "facebook:" in msg
+    if is_facebook and ("cookie" in msg or "decrypt" in msg or "dpapi" in msg):
+        return "讀取瀏覽器 Facebook cookies 失敗，請確認瀏覽器已關閉或登入資料可供讀取。"
+    if is_facebook and any(term in msg for term in ("login", "log in", "sign in", "not logged in", "private video")):
+        return "這則 Facebook 影片需要登入才能存取；目前僅能下載免登入可觀看的公開影片。"
+    if is_facebook and ("403" in msg or "forbidden" in msg):
+        return "Facebook 拒絕存取這則影片，請確認影片仍公開且可在瀏覽器中觀看。"
+    if is_facebook and "cannot parse data" in msg:
+        return "Facebook 影片頁面解析失敗 (Cannot parse data)，可能頁面結構已變更或影片目前不可用。"
+    if is_facebook and any(term in msg for term in ("video unavailable", "not found", "deleted", "removed", "404", "content isn't available", "content is not available")):
+        return "Facebook 影片已刪除或目前不可見。"
+    if is_facebook and any(term in msg for term in ("no video formats", "no playable formats", "no downloadable video")):
+        return "Facebook 沒有提供可下載的影片格式，影片可能不可見或目前受到存取限制。"
     if "403" in msg or "forbidden" in msg:
         return "存取被拒 (403 Forbidden)。影片下載權限受限或 URL 憑據過期，請確認影片權限或更新工具。"
     if "post" in msg and ("private" in msg or "login-gated" in msg):

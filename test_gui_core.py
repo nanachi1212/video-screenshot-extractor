@@ -17,11 +17,13 @@ from gui_core import (
     count_frames,
     create_job_workspace,
     create_zip,
+    extract_video_id,
     find_deno,
     find_ffmpeg,
     find_ffprobe,
     find_ytdlp,
     format_summary,
+    get_safe_output_dir,
     get_subprocess_silent_flags,
     kill_process_tree,
     load_output_folder,
@@ -62,10 +64,17 @@ class GuiCoreTests(unittest.TestCase):
         )
         self.assertEqual(args[1:3], ["--plugin-dirs", r"C:\app"])
 
+    def test_facebook_download_command_does_not_use_cookies_by_default(self):
+        args = build_download_args(
+            ["yt-dlp"], "source.mp4", "https://www.facebook.com/reel/1402267627510544/"
+        )
+        self.assertNotIn("--cookies-from-browser", args)
+        self.assertFalse(any("cookie" in arg.lower() for arg in args))
+
     def test_resolve_ytdlp_plugin_dir_returns_search_root(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / "plugins" / "yt_dlp_plugins" / "extractor").mkdir(parents=True)
-            self.assertEqual(resolve_ytdlp_plugin_dir(Path(tmp)), tmp)
+            (Path(tmp) / "plugins" / "threads" / "yt_dlp_plugins" / "extractor").mkdir(parents=True)
+            self.assertEqual(resolve_ytdlp_plugin_dir(Path(tmp)), str(Path(tmp) / "plugins"))
 
     def test_clear_source_work_files_removes_source_and_part_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -290,6 +299,13 @@ class GuiCoreTests(unittest.TestCase):
         self.assertIn("Threads", classify_error('Post "ABC" was not found. It may be private or login-gated.'))
         self.assertIn("沒有可下載的影片", classify_error('Post "ABC" has no downloadable video (an image post)'))
 
+    def test_classify_error_recognizes_facebook_failures(self):
+        self.assertIn("需要登入", classify_error("[facebook] Login required to view this video"))
+        self.assertIn("Facebook 拒絕存取", classify_error("[facebook] HTTP Error 403: Forbidden"))
+        self.assertIn("頁面解析失敗", classify_error("[facebook] Cannot parse data"))
+        self.assertIn("已刪除或目前不可見", classify_error("[facebook] Video unavailable: deleted"))
+        self.assertIn("cookies 失敗", classify_error("[facebook] Failed to decrypt browser cookies"))
+
     # --- Summary Formatter ---
 
     def test_format_summary(self):
@@ -319,6 +335,19 @@ class GuiCoreTests(unittest.TestCase):
             extract_video_id("https://www.threads.com/share/_srJIVx6G/"),
             "_srJIVx6G",
         )
+        self.assertEqual(
+            extract_video_id("https://www.facebook.com/reel/1402267627510544/"),
+            "1402267627510544",
+        )
+        self.assertEqual(
+            extract_video_id("https://www.facebook.com/watch/?v=1402267627510544"),
+            "1402267627510544",
+        )
+        self.assertEqual(
+            extract_video_id("https://www.facebook.com/BikeMuenchen/videos/1402267627510544/"),
+            "1402267627510544",
+        )
+        self.assertEqual(extract_video_id("https://fb.watch/OVML2ry9RR/"), "OVML2ry9RR")
         self.assertIsNone(extract_video_id("https://example.com/video.mp4"))
 
     def test_get_safe_output_dir_allocates_fresh_and_sequential_dirs(self):
@@ -344,8 +373,25 @@ class GuiCoreTests(unittest.TestCase):
             self.assertTrue((d1 / "important_file.txt").exists())
             self.assertEqual((d1 / "important_file.txt").read_text(), "do not touch")
 
+    def test_facebook_output_folder_uses_video_id_and_preserves_previous_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            url = "https://www.facebook.com/reel/1402267627510544/"
+            video_id = extract_video_id(url)
+            first = get_safe_output_dir(base, "Public Reel", video_id)
+            self.assertEqual(first.name, "Public Reel [1402267627510544]")
+            first.mkdir()
+            marker = first / "keep.txt"
+            marker.write_text("previous run", encoding="utf-8")
+
+            second = get_safe_output_dir(base, "Public Reel", video_id)
+            self.assertEqual(second.name, "Public Reel [1402267627510544] (2)")
+            second.mkdir()
+
+            self.assertEqual(marker.read_text(encoding="utf-8"), "previous run")
+
     def test_threads_plugin_is_vendored(self):
-        plugin_path = Path(__file__).parent / "plugins" / "yt_dlp_plugins" / "extractor" / "threads.py"
+        plugin_path = Path(__file__).parent / "plugins" / "threads" / "yt_dlp_plugins" / "extractor" / "threads.py"
         self.assertTrue(plugin_path.is_file())
         self.assertIn("class ThreadsIE", plugin_path.read_text(encoding="utf-8"))
 
