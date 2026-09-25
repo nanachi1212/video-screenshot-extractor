@@ -27,6 +27,7 @@ from gui_core import (
     parse_ffmpeg_progress,
     popen_silent,
     resolve_task_name,
+    resolve_ytdlp_plugin_dir,
     build_download_args,
     save_output_folder,
 )
@@ -43,8 +44,7 @@ class App(tk.Tk):
         self.app_dir = Path(sys.executable if getattr(sys, "frozen", False) else __file__).parent
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.saved_output = load_output_folder()
-        bundled_plugins = self.app_dir / "plugins"
-        self.ytdlp_plugin_dir = str(bundled_plugins) if bundled_plugins.is_dir() else None
+        self.ytdlp_plugin_dir = resolve_ytdlp_plugin_dir(self.app_dir)
 
         self.active_process: subprocess.Popen | None = None
         self.is_cancelled = False

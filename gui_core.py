@@ -222,6 +222,13 @@ def get_safe_output_dir(base_output: Path, title: str, video_id: str | None = No
 
 
 
+def resolve_ytdlp_plugin_dir(app_dir: Path) -> str | None:
+    """Return the directory yt-dlp must search for the bundled plugin namespace."""
+    if (app_dir / "plugins" / "yt_dlp_plugins").is_dir():
+        return str(app_dir)
+    return None
+
+
 def build_ytdlp_common_args(js_runtime: str | None = None, plugin_dir: str | None = None) -> list[str]:
     """Build shared yt-dlp options for bundled runtime and extractor plugins."""
     args: list[str] = []
