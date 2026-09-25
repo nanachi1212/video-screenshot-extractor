@@ -89,3 +89,14 @@ Video Screenshot Extractor (影片配圖擷取器) bundles or utilizes several o
 * **License**: Python Software Foundation (PSF) License Agreement version 2
 * **Tcl/Tk License**: Regulated by the Regents of the University of California, Sun Microsystems, Inc., Scriptics Corporation, and other parties (BSD-style permissive license).
 * **Notice**: Python and Tcl/Tk are distributed under their respective permissive open-source licenses. Full license texts can be inspected at https://docs.python.org/3/license.html.
+
+
+---
+
+## 5. yt-dlp-threads
+
+* **Project**: yt-dlp-threads
+* **Source**: https://github.com/tribixbite/yt-dlp-threads
+* **Purpose**: yt-dlp extractor plugin for publicly viewable Threads video posts.
+* **License**: The Unlicense (Public Domain Dedication)
+* **Bundling**: The extractor source is vendored under `plugins/yt_dlp_plugins/extractor/threads.py` and loaded by the bundled yt-dlp executable.
