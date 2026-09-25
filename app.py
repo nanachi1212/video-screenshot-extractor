@@ -43,6 +43,8 @@ class App(tk.Tk):
         self.app_dir = Path(sys.executable if getattr(sys, "frozen", False) else __file__).parent
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.saved_output = load_output_folder()
+        bundled_plugins = self.app_dir / "plugins"
+        self.ytdlp_plugin_dir = str(bundled_plugins) if bundled_plugins.is_dir() else None
 
         self.active_process: subprocess.Popen | None = None
         self.is_cancelled = False
@@ -244,7 +246,9 @@ class App(tk.Tk):
             if self.is_cancelled:
                 raise InterruptedError("已由使用者取消")
 
-            task_name = resolve_task_name([downloader_bin], url, deno_bin, manual_name)
+            task_name = resolve_task_name(
+                [downloader_bin], url, deno_bin, manual_name, self.ytdlp_plugin_dir
+            )
             self.events.put(("log", f"任務標題：{task_name}"))
 
             # Stage 2: Download video
@@ -252,16 +256,22 @@ class App(tk.Tk):
                 raise InterruptedError("已由使用者取消")
 
             self.events.put(("status", "階段 2/5：正在下載影片 (0%~65%)…"))
-            download_cmd = build_download_args([downloader_bin], str(source), url, deno_bin)
+            download_cmd = build_download_args(
+                [downloader_bin], str(source), url, deno_bin, self.ytdlp_plugin_dir
+            )
             proc = popen_silent(download_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             self.active_process = proc
             assert proc.stdout is not None
 
+            download_error_lines: list[str] = []
             for line in proc.stdout:
                 if self.is_cancelled:
                     break
                 line = line.rstrip()
                 self.events.put(("log", line))
+                if line:
+                    download_error_lines.append(line)
+                    download_error_lines = download_error_lines[-8:]
                 if "[download]" in line and "%" in line:
                     try:
                         percent_str = line.split("%", 1)[0].rsplit(" ", 1)[-1]
@@ -275,7 +285,8 @@ class App(tk.Tk):
             if self.is_cancelled:
                 raise InterruptedError("已由使用者取消")
             if ret != 0:
-                raise RuntimeError(f"影片下載失敗，yt-dlp 返回碼：{ret}")
+                detail = "\n".join(download_error_lines)
+                raise RuntimeError(detail or f"影片下載失敗，yt-dlp 返回碼：{ret}")
 
             # Non-destructive target directory under output folder
             video_id = extract_video_id(url)
