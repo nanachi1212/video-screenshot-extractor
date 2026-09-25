@@ -187,6 +187,13 @@ def extract_video_id(url: str) -> str | None:
     host = (parsed.hostname or "").lower()
     if host == "fb.watch":
         return next((part for part in parsed.path.split("/") if part), None)
+    if host in {"x.com", "twitter.com"} or host.endswith(".x.com") or host.endswith(".twitter.com"):
+        for pattern in (
+            r"/(?:[^/]+/status|i/web/status|statuses)/(\d+)",
+            r"/i/videos(?:/tweet)?/(\d+)",
+        ):
+            if match := re.search(pattern, parsed.path, re.IGNORECASE):
+                return match.group(1)
     if host == "facebook.com" or host.endswith(".facebook.com") or host == "fb.com":
         query = parse_qs(parsed.query)
         if video_id := next(iter(query.get("v", [])), None):
@@ -359,6 +366,17 @@ def classify_error(exc: Exception | str) -> str:
     while retaining context.
     """
     msg = str(exc).lower()
+    is_x = "[twitter]" in msg or "twitter:" in msg or "twitter.com" in msg or "x.com" in msg
+    if is_x and any(term in msg for term in ("protected tweet", "not authorized", "login required", "sign in", "log in")):
+        return "這則 X 貼文受保護或需要登入，目前僅支援免登入可觀看的公開影片貼文。"
+    if is_x and ("429" in msg or "rate limit" in msg or "too many requests" in msg):
+        return "X 暫時限制請求頻率 (429)，請稍後再試。"
+    if is_x and any(term in msg for term in ("no video could be found", "no video", "no media", "no downloadable video")):
+        return "這則 X 貼文沒有可下載的影片，可能是純文字、圖片或其他目前不支援的媒體類型。"
+    if is_x and any(term in msg for term in ("tweet unavailable", "not found", "deleted", "removed", "suspended", "404")):
+        return "X 貼文已刪除、帳號受限制，或目前不可見。"
+    if is_x and ("403" in msg or "forbidden" in msg):
+        return "X 拒絕存取這則貼文，請確認貼文仍公開且可在瀏覽器中觀看。"
     is_facebook = "facebook" in msg or "fb.watch" in msg or "facebook:" in msg
     if is_facebook and ("cookie" in msg or "decrypt" in msg or "dpapi" in msg):
         return "讀取瀏覽器 Facebook cookies 失敗，請確認瀏覽器已關閉或登入資料可供讀取。"

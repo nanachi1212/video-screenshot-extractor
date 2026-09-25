@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-一款專為 Windows 設計的桌面 GUI 工具，可下載具有合法存取權限的公開影片（包含公開 Threads 影片貼文），並依照畫面場景變化自動擷取代表性截圖。
+一款專為 Windows 設計的桌面 GUI 工具，可下載具有合法存取權限的公開影片（包含公開 Threads、Facebook 與 X / Twitter 影片貼文），並依照畫面場景變化自動擷取代表性截圖。
 
 除了場景截圖之外，也可選擇輸出：
 
@@ -57,6 +57,19 @@ https://www.threads.com/share/SHARE_CODE/
 ```
 
 正式版會自動載入隨附的 Threads extractor，不需要另外安裝 plugin。此功能僅處理公開可檢視的影片貼文，不提供登入繞過、私人內容或 DRM 存取。Threads 網站結構若變更，可能需要更新 extractor。
+
+---
+
+### X / Twitter 公開影片下載
+
+可直接貼上公開 X / Twitter 影片貼文網址，例如：
+
+```text
+https://x.com/username/status/STATUS_ID
+https://twitter.com/username/status/STATUS_ID
+```
+
+使用 yt-dlp 內建 Twitter extractor，不需要額外 plugin。此功能以免登入可觀看的公開影片貼文為範圍；受保護帳號、需要登入或不可見的貼文不保證可下載。
 
 ---
 
