@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import gui_core
 from gui_core import (
     build_download_args,
+    build_ytdlp_common_args,
     check_runtime_tools,
     classify_error,
     cleanup_job_workspace,
@@ -45,6 +46,20 @@ class GuiCoreTests(unittest.TestCase):
     def test_download_command_works_without_deno(self):
         args = build_download_args(["yt-dlp"], "source.mp4", "url")
         self.assertNotIn("--js-runtimes", args)
+
+    def test_ytdlp_common_args_adds_bundled_plugin_dir(self):
+        args = build_ytdlp_common_args(r"C:\deno.exe", r"C:\app\plugins")
+        self.assertEqual(
+            args,
+            ["--plugin-dirs", r"C:\app\plugins", "--js-runtimes", r"deno:C:\deno.exe"],
+        )
+
+    def test_download_command_adds_threads_plugin_dir(self):
+        args = build_download_args(
+            ["yt-dlp"], "source.mp4", "https://www.threads.com/@demo/post/ABC123",
+            plugin_dir=r"C:\app\plugins",
+        )
+        self.assertEqual(args[1:3], ["--plugin-dirs", r"C:\app\plugins"])
 
     def test_clear_source_work_files_removes_source_and_part_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -266,6 +281,8 @@ class GuiCoreTests(unittest.TestCase):
         self.assertIn("網路連線失敗", classify_error("Network connection timed out"))
         self.assertIn("Deno", classify_error("yt-dlp requested js-runtimes deno"))
         self.assertIn("FFmpeg", classify_error("ffmpeg returned exit code 1"))
+        self.assertIn("Threads", classify_error('Post "ABC" was not found. It may be private or login-gated.'))
+        self.assertIn("沒有可下載的影片", classify_error('Post "ABC" has no downloadable video (an image post)'))
 
     # --- Summary Formatter ---
 
@@ -284,6 +301,18 @@ class GuiCoreTests(unittest.TestCase):
         self.assertEqual(extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "dQw4w9WgXcQ")
         self.assertEqual(extract_video_id("https://youtu.be/dQw4w9WgXcQ?t=10"), "dQw4w9WgXcQ")
         self.assertEqual(extract_video_id("https://www.youtube.com/shorts/dQw4w9WgXcQ"), "dQw4w9WgXcQ")
+        self.assertEqual(
+            extract_video_id("https://www.threads.com/@demo/post/DaGcWDwj8tW"),
+            "DaGcWDwj8tW",
+        )
+        self.assertEqual(
+            extract_video_id("https://www.threads.net/t/C8Xw3vLxabc"),
+            "C8Xw3vLxabc",
+        )
+        self.assertEqual(
+            extract_video_id("https://www.threads.com/share/_srJIVx6G/"),
+            "_srJIVx6G",
+        )
         self.assertIsNone(extract_video_id("https://example.com/video.mp4"))
 
     def test_get_safe_output_dir_allocates_fresh_and_sequential_dirs(self):
