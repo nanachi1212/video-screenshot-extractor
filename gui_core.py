@@ -334,10 +334,10 @@ def classify_error(exc: Exception | str) -> str:
     msg = str(exc).lower()
     if "403" in msg or "forbidden" in msg:
         return "存取被拒 (403 Forbidden)。影片下載權限受限或 URL 憑據過期，請確認影片權限或更新工具。"
-    if "private video" in msg or "sign in" in msg or "members-only" in msg or "login" in msg:
-        return "無法存取該影片：此影片為私人影片、會員專屬或需要登入方可觀看。"
     if "post" in msg and ("private" in msg or "login-gated" in msg):
         return "無法存取這則 Threads 貼文：貼文可能是私人內容、需要登入，或已被移除。"
+    if "private video" in msg or "sign in" in msg or "members-only" in msg or "login" in msg:
+        return "無法存取該影片：此影片為私人影片、會員專屬或需要登入方可觀看。"
     if "no downloadable video" in msg or "contains no videos" in msg:
         return "這則 Threads 貼文沒有可下載的影片，可能是純圖片、純文字或目前不支援的貼文類型。"
     if "video unavailable" in msg or "not found" in msg or "404" in msg:
