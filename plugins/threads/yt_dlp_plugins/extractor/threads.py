@@ -226,7 +226,15 @@ class ThreadsIE(InfoExtractor):
         title = (caption or '').split('\n')[0][:72] or (
             f'Threads video by {uploader_id}' if uploader_id else f'Threads video {video_id}')
 
-        carousel = post.get('carousel_media')
+        # Text posts (media_type 19) may embed a linked Instagram reel/post
+        # whose media lives under text_post_app_info.linked_inline_media.
+        media = post
+        if not (post.get('video_versions') or post.get('video_dash_manifest')
+                or post.get('carousel_media')):
+            media = traverse_obj(
+                post, ('text_post_app_info', 'linked_inline_media', {dict})) or post
+
+        carousel = media.get('carousel_media')
         if isinstance(carousel, list) and carousel:
             entries = []
             for idx, item in enumerate(carousel):
@@ -245,7 +253,7 @@ class ThreadsIE(InfoExtractor):
                 entries, playlist_id=video_id, playlist_title=title,
                 playlist_description=caption, multi_video=True)
 
-        entry = self._media_entry(post, video_id)
+        entry = self._media_entry(media, video_id)
         if entry is None:
             kind = ('an image post' if post.get('media_type') == _MEDIA_TYPE_IMAGE
                     else 'a carousel' if post.get('media_type') == _MEDIA_TYPE_CAROUSEL
