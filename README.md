@@ -228,7 +228,7 @@ VideoScreenshotExtractor-Setup
 例如目前版本：
 
 ```text
-VideoScreenshotExtractor-Setup-v2.8.0.exe
+VideoScreenshotExtractor-Setup-v2.8.1.exe
 ```
 
 安裝後可從：
@@ -253,7 +253,7 @@ VideoScreenshotExtractor-Portable
 例如：
 
 ```text
-VideoScreenshotExtractor-Portable-v2.8.0.zip
+VideoScreenshotExtractor-Portable-v2.8.1.zip
 ```
 
 解壓縮後即可使用。
@@ -394,6 +394,14 @@ Example Video [abc123]\
 
 ---
 
+# 🆕 v2.8.1 修正
+
+- 修正 Threads 文字貼文內嵌 Instagram Reel 時顯示「沒有可下載的影片」，現在可正常下載該影片並擷取截圖
+
+**[v2.8.0 → v2.8.1](https://github.com/nanachi1212/video-screenshot-extractor/compare/v2.8.0...v2.8.1)**
+
+---
+
 # 🆕 v2.8.0 主要更新
 
 v2.8.0 將影片下載能力從原有來源擴充到 **Threads、Facebook 與 X / Twitter 公開影片**，並完成 Windows 實機下載與場景截圖驗證。
@@ -463,7 +471,7 @@ v2.7.0 是一次以「一般使用者可以直接安裝使用」為主要目標�
 
 # 🧩 內建執行元件
 
-目前 v2.8.0 使用：
+目前 v2.8.1 使用：
 
 | 元件 | 版本 | 用途 |
 |---|---:|---|
@@ -491,7 +499,7 @@ SHA256SUMS.txt
 在 Windows PowerShell 中執行：
 
 ```powershell
-Get-FileHash ".\VideoScreenshotExtractor-Setup-v2.8.0.exe" -Algorithm SHA256
+Get-FileHash ".\VideoScreenshotExtractor-Setup-v2.8.1.exe" -Algorithm SHA256
 ```
 
 將結果與：
@@ -664,7 +672,7 @@ Inno Setup 6
 每次正式版本 tag，例如：
 
 ```text
-v2.8.0
+v2.8.1
 ```
 
 推送到 GitHub 後，GitHub Actions 會自動執行：
