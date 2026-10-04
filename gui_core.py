@@ -15,6 +15,57 @@ SETTINGS_FILE = Path.home() / ".video_screenshot_gui.json"
 FRAME_PREFIX = "frame_"
 FRAME_FILE_PATTERN = "frame_%04d.png"
 FRAME_GLOB_PATTERN = "frame_*.png"
+URL_PATTERN = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
+URL_TRAILING_PUNCTUATION = ".,!?;:，。！？；：、…'\"”’）)]}】〉》」』"
+
+PLATFORM_DOMAINS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("抖音", ("douyin.com",)),
+    ("TikTok", ("tiktok.com",)),
+    ("Facebook", ("facebook.com", "fb.com", "fb.watch")),
+    ("Instagram", ("instagram.com", "instagr.am")),
+    ("Threads", ("threads.com", "threads.net")),
+    ("X / Twitter", ("x.com", "twitter.com")),
+    ("YouTube", ("youtube.com", "youtu.be")),
+)
+
+
+def _host_matches(host: str, domain: str) -> bool:
+    """Match an exact hostname or a real subdomain, never a lookalike suffix."""
+    return host == domain or host.endswith(f".{domain}")
+
+
+def extract_url_from_input(value: str) -> str:
+    """Extract exactly one HTTP(S) URL from a URL or social-media share text."""
+    candidates: list[str] = []
+    for match in URL_PATTERN.finditer(value.strip()):
+        candidate = match.group(0).rstrip(URL_TRAILING_PUNCTUATION)
+        try:
+            parsed = urlsplit(candidate)
+        except ValueError:
+            continue
+        if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+            candidates.append(candidate)
+
+    if not candidates:
+        raise ValueError("找不到有效網址。請貼上包含 http:// 或 https:// 的影片連結或分享文字。")
+    if len(candidates) > 1:
+        raise ValueError(f"偵測到 {len(candidates)} 個網址，請一次只貼上一個影片連結。")
+    return candidates[0]
+
+
+def detect_platform(url: str) -> str:
+    """Identify known platforms using hostname boundaries instead of substring matching."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "其他網站"
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return "其他網站"
+    host = (parsed.hostname or "").lower().rstrip(".")
+    for platform, domains in PLATFORM_DOMAINS:
+        if any(_host_matches(host, domain) for domain in domains):
+            return platform
+    return "其他網站"
 
 
 def get_subprocess_silent_flags() -> dict[str, object]:
@@ -209,6 +260,13 @@ def extract_video_id(url: str) -> str | None:
                 if story_id := next(iter(query.get("story_fbid", [])), None):
                     return story_id
 
+    if _host_matches(host, "tiktok.com") or _host_matches(host, "douyin.com"):
+        if match := re.search(r"/(?:video|note)/(\d+)", parsed.path, re.IGNORECASE):
+            return match.group(1)
+    if _host_matches(host, "instagram.com") or host == "instagr.am":
+        if match := re.search(r"/(?:reel|reels|p)/([A-Za-z0-9_-]+)", parsed.path, re.IGNORECASE):
+            return match.group(1)
+
     patterns = [
         r"(?:v=|\/v\/|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})",
         r"[?&]v=([A-Za-z0-9_-]+)",
@@ -251,18 +309,25 @@ def get_safe_output_dir(base_output: Path, title: str, video_id: str | None = No
 
 def resolve_ytdlp_plugin_dir(app_dir: Path) -> str | None:
     """Return the directory yt-dlp must search for the bundled plugin namespace."""
-    if any((app_dir / "plugins").glob("*/yt_dlp_plugins")):
-        return str(app_dir / "plugins")
+    plugin_root = app_dir / "plugins"
+    if (plugin_root / "threads" / "yt_dlp_plugins").is_dir():
+        return str(plugin_root)
     return None
 
 
-def build_ytdlp_common_args(js_runtime: str | None = None, plugin_dir: str | None = None) -> list[str]:
+def build_ytdlp_common_args(
+    js_runtime: str | None = None,
+    plugin_dir: str | None = None,
+    ffmpeg_location: str | None = None,
+) -> list[str]:
     """Build shared yt-dlp options for bundled runtime and extractor plugins."""
-    args: list[str] = []
+    args: list[str] = ["--ignore-config", "--no-plugin-dirs", "--no-remote-components"]
     if plugin_dir:
         args.extend(["--plugin-dirs", plugin_dir])
     if js_runtime:
         args.extend(["--js-runtimes", f"deno:{js_runtime}"])
+    if ffmpeg_location:
+        args.extend(["--ffmpeg-location", ffmpeg_location])
     return args
 
 
@@ -272,13 +337,14 @@ def resolve_task_name(
     js_runtime: str | None,
     manual_name: str | None = None,
     plugin_dir: str | None = None,
+    ffmpeg_location: str | None = None,
 ) -> str:
     """Retrieve video title or return sanitized manual name."""
     if manual_name and manual_name.strip():
         return sanitize_task_name(manual_name)
-    common = build_ytdlp_common_args(js_runtime, plugin_dir)
+    common = build_ytdlp_common_args(js_runtime, plugin_dir, ffmpeg_location)
     result = run_silent(
-        downloader + common + ["--no-playlist", "--get-title", url],
+        downloader + common + ["--no-playlist", "--get-title", "--", url],
         capture_output=True,
         text=True,
         check=False,
@@ -296,9 +362,10 @@ def build_download_args(
     url: str,
     js_runtime: str | None = None,
     plugin_dir: str | None = None,
+    ffmpeg_location: str | None = None,
 ) -> list[str]:
     """Construct yt-dlp arguments for downloading video with best video + best audio merged into mp4."""
-    common = build_ytdlp_common_args(js_runtime, plugin_dir)
+    common = build_ytdlp_common_args(js_runtime, plugin_dir, ffmpeg_location)
     return downloader + common + [
         "--newline",
         "--no-playlist",
@@ -308,6 +375,7 @@ def build_download_args(
         "mp4",
         "-o",
         source,
+        "--",
         url,
     ]
 
@@ -366,6 +434,40 @@ def classify_error(exc: Exception | str) -> str:
     while retaining context.
     """
     msg = str(exc).lower()
+    is_tiktok = "[tiktok" in msg or "tiktok:" in msg or "tiktok.com" in msg
+    if is_tiktok and any(term in msg for term in ("fresh cookies", "cookie", "login required", "sign in", "log in", "private")):
+        return "TikTok 需要有效工作階段或登入才能存取此影片。程式不會自動讀取瀏覽器 cookies；請確認影片公開，或稍後再試。"
+    if is_tiktok and any(term in msg for term in ("429", "rate limit", "too many requests")):
+        return "TikTok 暫時限制請求頻率 (429)，請稍後再試。"
+    if is_tiktok and any(term in msg for term in ("ip address is blocked", "403", "forbidden")):
+        return "TikTok 拒絕目前網路位置的存取。這是平台端限制，請稍後再試；程式不會繞過存取控制。"
+    if is_tiktok and any(term in msg for term in ("not found", "unavailable", "deleted", "removed", "404")):
+        return "TikTok 影片不存在、已刪除，或目前無法公開存取。"
+    if is_tiktok and any(term in msg for term in ("unable to extract", "cannot parse", "no video formats", "no downloadable video")):
+        return "TikTok 頁面解析失敗或沒有可下載的影片格式；平台可能已變更，請更新工具後再試。"
+
+    is_douyin = "[douyin" in msg or "douyin:" in msg or "douyin.com" in msg
+    if is_douyin and any(term in msg for term in ("fresh cookies", "cookie", "login required", "sign in", "log in", "private")):
+        return "抖音要求有效工作階段或 fresh cookies。程式不會自動讀取瀏覽器 cookies；公開短連結也可能受地區或風控限制。"
+    if is_douyin and any(term in msg for term in ("429", "rate limit", "too many requests")):
+        return "抖音暫時限制請求頻率 (429)，請稍後再試。"
+    if is_douyin and any(term in msg for term in ("ip address is blocked", "403", "forbidden")):
+        return "抖音拒絕目前網路位置的存取。這是平台端限制，請稍後再試；程式不會繞過存取控制。"
+    if is_douyin and any(term in msg for term in ("not found", "unavailable", "deleted", "removed", "404")):
+        return "抖音影片不存在、已刪除，或目前無法公開存取。"
+    if is_douyin and any(term in msg for term in ("unable to extract", "cannot parse", "no video formats", "no downloadable video")):
+        return "抖音頁面解析失敗或沒有可下載的影片格式；短連結重新導向可能受登入、地區或風控限制。"
+
+    is_instagram = "[instagram" in msg or "instagram:" in msg or "instagram.com" in msg
+    if is_instagram and any(term in msg for term in ("cookie", "login", "log in", "sign in", "private", "checkpoint")):
+        return "Instagram Reel 需要登入或有效 cookies 才能存取。程式不會自動讀取瀏覽器 cookies，目前僅處理可匿名存取的公開內容。"
+    if is_instagram and any(term in msg for term in ("429", "rate limit", "too many requests")):
+        return "Instagram 暫時限制請求頻率 (429)，請稍後再試。"
+    if is_instagram and any(term in msg for term in ("not found", "unavailable", "deleted", "removed", "404")):
+        return "Instagram Reel 不存在、已刪除，或目前無法公開存取。"
+    if is_instagram and any(term in msg for term in ("unable to extract", "cannot parse", "no video formats", "no downloadable video")):
+        return "Instagram Reel 頁面解析失敗或沒有可下載的影片格式；平台可能已變更或正在限流。"
+
     is_x = "[twitter]" in msg or "twitter:" in msg or "twitter.com" in msg or "x.com" in msg
     if is_x and any(term in msg for term in ("protected tweet", "not authorized", "login required", "sign in", "log in")):
         return "這則 X 貼文受保護或需要登入，目前僅支援免登入可觀看的公開影片貼文。"
@@ -379,7 +481,9 @@ def classify_error(exc: Exception | str) -> str:
         return "X 拒絕存取這則貼文，請確認貼文仍公開且可在瀏覽器中觀看。"
     is_facebook = "facebook" in msg or "fb.watch" in msg or "facebook:" in msg
     if is_facebook and ("cookie" in msg or "decrypt" in msg or "dpapi" in msg):
-        return "讀取瀏覽器 Facebook cookies 失敗，請確認瀏覽器已關閉或登入資料可供讀取。"
+        return "Facebook 需要有效 cookies 或登入狀態。程式不會自動讀取瀏覽器 cookies，目前僅處理可匿名存取的公開影片。"
+    if is_facebook and ("429" in msg or "rate limit" in msg or "too many requests" in msg):
+        return "Facebook 暫時限制請求頻率 (429)，請稍後再試。"
     if is_facebook and any(term in msg for term in ("login", "log in", "sign in", "not logged in", "private video")):
         return "這則 Facebook 影片需要登入才能存取；目前僅能下載免登入可觀看的公開影片。"
     if is_facebook and ("403" in msg or "forbidden" in msg):

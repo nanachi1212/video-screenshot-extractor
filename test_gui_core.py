@@ -17,7 +17,9 @@ from gui_core import (
     count_frames,
     create_job_workspace,
     create_zip,
+    detect_platform,
     extract_video_id,
+    extract_url_from_input,
     find_deno,
     find_ffmpeg,
     find_ffprobe,
@@ -44,7 +46,8 @@ class GuiCoreTests(unittest.TestCase):
 
     def test_download_command_adds_deno_when_available(self):
         args = build_download_args(["yt-dlp"], "source.mp4", "url", r"C:\deno.exe")
-        self.assertEqual(args[1:3], ["--js-runtimes", r"deno:C:\deno.exe"])
+        self.assertIn("--js-runtimes", args)
+        self.assertEqual(args[args.index("--js-runtimes") + 1], r"deno:C:\deno.exe")
 
     def test_download_command_works_without_deno(self):
         args = build_download_args(["yt-dlp"], "source.mp4", "url")
@@ -54,7 +57,13 @@ class GuiCoreTests(unittest.TestCase):
         args = build_ytdlp_common_args(r"C:\deno.exe", r"C:\app")
         self.assertEqual(
             args,
-            ["--plugin-dirs", r"C:\app", "--js-runtimes", r"deno:C:\deno.exe"],
+            [
+                "--ignore-config",
+                "--no-plugin-dirs",
+                "--no-remote-components",
+                "--plugin-dirs", r"C:\app",
+                "--js-runtimes", r"deno:C:\deno.exe",
+            ],
         )
 
     def test_download_command_adds_threads_plugin_dir(self):
@@ -62,7 +71,31 @@ class GuiCoreTests(unittest.TestCase):
             ["yt-dlp"], "source.mp4", "https://www.threads.com/@demo/post/ABC123",
             plugin_dir=r"C:\app",
         )
-        self.assertEqual(args[1:3], ["--plugin-dirs", r"C:\app"])
+        self.assertEqual(args[1:4], ["--ignore-config", "--no-plugin-dirs", "--no-remote-components"])
+        self.assertEqual(args[4:6], ["--plugin-dirs", r"C:\app"])
+
+    def test_ytdlp_commands_ignore_external_config_plugins_and_remote_components(self):
+        args = build_download_args(["yt-dlp"], "source.mp4", "https://example.com/video")
+        self.assertEqual(args[1:4], ["--ignore-config", "--no-plugin-dirs", "--no-remote-components"])
+
+    def test_download_command_pins_ffmpeg_and_separates_url(self):
+        url = "https://example.com/--playlist-items=1"
+        args = build_download_args(
+            ["yt-dlp"], "source.mp4", url, ffmpeg_location=r"C:\app\tools\ffmpeg.exe"
+        )
+        self.assertEqual(args[args.index("--ffmpeg-location") + 1], r"C:\app\tools\ffmpeg.exe")
+        self.assertEqual(args[-2:], ["--", url])
+
+    def test_metadata_command_pins_ffmpeg_and_separates_url(self):
+        result = type("Result", (), {"stdout": "Title\n", "stderr": "", "returncode": 0})()
+        with patch("gui_core.run_silent", return_value=result) as run:
+            resolve_task_name(
+                ["yt-dlp"], "https://example.com/--help", None,
+                plugin_dir=r"C:\app\plugins", ffmpeg_location=r"C:\app\tools\ffmpeg.exe",
+            )
+        command = run.call_args.args[0]
+        self.assertEqual(command[-2:], ["--", "https://example.com/--help"])
+        self.assertEqual(command[command.index("--ffmpeg-location") + 1], r"C:\app\tools\ffmpeg.exe")
 
     def test_facebook_download_command_does_not_use_cookies_by_default(self):
         args = build_download_args(
@@ -82,6 +115,51 @@ class GuiCoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "plugins" / "threads" / "yt_dlp_plugins" / "extractor").mkdir(parents=True)
             self.assertEqual(resolve_ytdlp_plugin_dir(Path(tmp)), str(Path(tmp) / "plugins"))
+
+    def test_resolve_ytdlp_plugin_dir_ignores_unrecognized_plugin_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "plugins" / "unknown" / "yt_dlp_plugins").mkdir(parents=True)
+            self.assertIsNone(resolve_ytdlp_plugin_dir(Path(tmp)))
+
+    # --- Share Text URL Extraction & Platform Identification ---
+
+    def test_extract_url_from_share_text_and_trim_trailing_punctuation(self):
+        cases = {
+            "抖音分享 https://v.douyin.com/abc123/ 复制此链接，": "https://v.douyin.com/abc123/",
+            "TikTok: https://www.tiktok.com/@demo/video/1234567890).": "https://www.tiktok.com/@demo/video/1234567890",
+            "Facebook Reel：https://www.facebook.com/reel/1402267627510544/。": "https://www.facebook.com/reel/1402267627510544/",
+            "Instagram https://www.instagram.com/reel/ABC_def-12/】": "https://www.instagram.com/reel/ABC_def-12/",
+        }
+        for share_text, expected in cases.items():
+            with self.subTest(share_text=share_text):
+                self.assertEqual(extract_url_from_input(share_text), expected)
+
+    def test_extract_url_rejects_non_http_and_missing_urls(self):
+        for value in ("javascript:alert(1)", "ftp://example.com/video", "只有分享文字沒有網址"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "http:// 或 https://"):
+                extract_url_from_input(value)
+
+    def test_extract_url_rejects_multiple_urls_with_clear_message(self):
+        value = "https://www.tiktok.com/a https://www.instagram.com/reel/b/"
+        with self.assertRaisesRegex(ValueError, "偵測到 2 個網址"):
+            extract_url_from_input(value)
+
+    def test_detect_platform_uses_hostname_boundaries(self):
+        cases = {
+            "https://v.douyin.com/abc/": "抖音",
+            "https://vm.tiktok.com/abc/": "TikTok",
+            "https://m.facebook.com/reel/1/": "Facebook",
+            "https://www.instagram.com/reel/abc/": "Instagram",
+            "https://www.threads.net/@demo/post/abc": "Threads",
+            "https://mobile.twitter.com/demo/status/1": "X / Twitter",
+            "https://youtu.be/abc": "YouTube",
+            "https://facebook.com.evil.example/reel/1": "其他網站",
+            "https://notinstagram.com/reel/abc": "其他網站",
+            "https://evil-tiktok.com/video/1": "其他網站",
+        }
+        for url, expected in cases.items():
+            with self.subTest(url=url):
+                self.assertEqual(detect_platform(url), expected)
 
     def test_clear_source_work_files_removes_source_and_part_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -318,7 +396,28 @@ class GuiCoreTests(unittest.TestCase):
         self.assertIn("Facebook 拒絕存取", classify_error("[facebook] HTTP Error 403: Forbidden"))
         self.assertIn("頁面解析失敗", classify_error("[facebook] Cannot parse data"))
         self.assertIn("已刪除或目前不可見", classify_error("[facebook] Video unavailable: deleted"))
-        self.assertIn("cookies 失敗", classify_error("[facebook] Failed to decrypt browser cookies"))
+        self.assertIn("不會自動讀取瀏覽器 cookies", classify_error("[facebook] Failed to decrypt browser cookies"))
+        self.assertIn("限制請求頻率", classify_error("[facebook] HTTP Error 429: Too Many Requests"))
+
+    def test_classify_error_recognizes_tiktok_failures(self):
+        self.assertIn("不會自動讀取瀏覽器 cookies", classify_error("[TikTok] Fresh cookies are needed"))
+        self.assertIn("限制請求頻率", classify_error("[TikTok] HTTP Error 429: Too Many Requests"))
+        self.assertIn("平台端限制", classify_error("[TikTok] Your IP address is blocked from accessing this post"))
+        self.assertIn("不存在", classify_error("[TikTok] Video unavailable: deleted"))
+        self.assertIn("解析失敗", classify_error("[TikTok] Unable to extract video data"))
+
+    def test_classify_error_recognizes_douyin_failures(self):
+        self.assertIn("不會自動讀取瀏覽器 cookies", classify_error("[Douyin] Fresh cookies are needed"))
+        self.assertIn("限制請求頻率", classify_error("[Douyin] HTTP Error 429"))
+        self.assertIn("平台端限制", classify_error("[Douyin] HTTP Error 403: Forbidden"))
+        self.assertIn("不存在", classify_error("[Douyin] Video not found"))
+        self.assertIn("解析失敗", classify_error("[Douyin] Cannot parse data"))
+
+    def test_classify_error_recognizes_instagram_failures(self):
+        self.assertIn("不會自動讀取瀏覽器 cookies", classify_error("[Instagram] Login required; use cookies"))
+        self.assertIn("限制請求頻率", classify_error("[Instagram] HTTP Error 429"))
+        self.assertIn("不存在", classify_error("[Instagram] Reel not found"))
+        self.assertIn("解析失敗", classify_error("[Instagram] Unable to extract video data"))
 
     # --- Summary Formatter ---
 
@@ -377,6 +476,18 @@ class GuiCoreTests(unittest.TestCase):
         self.assertEqual(
             extract_video_id("https://twitter.com/i/videos/tweet/705235433198714880"),
             "705235433198714880",
+        )
+        self.assertEqual(
+            extract_video_id("https://www.tiktok.com/@demo/video/7481234567890123456"),
+            "7481234567890123456",
+        )
+        self.assertEqual(
+            extract_video_id("https://www.douyin.com/video/7481234567890123456"),
+            "7481234567890123456",
+        )
+        self.assertEqual(
+            extract_video_id("https://www.instagram.com/reel/ABC_def-12/"),
+            "ABC_def-12",
         )
         self.assertIsNone(extract_video_id("https://example.com/video.mp4"))
 
@@ -450,6 +561,19 @@ class GuiCoreTests(unittest.TestCase):
             self.assertTrue(data[tool]["version"])
             self.assertTrue(data[tool]["url"].startswith("https://"))
             self.assertEqual(len(data[tool]["sha256"]), 64, f"Invalid SHA-256 length for {tool}")
+
+    def test_build_packages_license_and_tool_source_metadata(self):
+        build_script = (Path(__file__).parent / "scripts" / "build.ps1").read_text(encoding="utf-8-sig")
+        for required_name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "tools_manifest.json", "licenses\\yt-dlp"):
+            self.assertIn(required_name, build_script)
+        notices = (Path(__file__).parent / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8-sig")
+        self.assertIn("GPLv3-or-later", notices)
+        self.assertIn("2026.08.19/THIRD_PARTY_LICENSES.txt", notices)
+        yt_dlp_licenses = Path(__file__).parent / "licenses" / "yt-dlp"
+        self.assertIn("public domain", (yt_dlp_licenses / "LICENSE.txt").read_text(encoding="utf-8"))
+        third_party = (yt_dlp_licenses / "THIRD_PARTY_LICENSES.txt").read_text(encoding="utf-8")
+        self.assertIn("PyInstaller-bundled executables", third_party)
+        self.assertIn("GNU GENERAL PUBLIC LICENSE", third_party)
 
     # --- Process Killing Pure Logic ---
 

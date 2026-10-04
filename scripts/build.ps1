@@ -108,6 +108,28 @@ if (Test-Path $pluginsSource) {
     Write-Host "[OK] Bundled yt-dlp plugins copied to $pluginsTarget" -ForegroundColor Green
 }
 
+# Package project and third-party license/source metadata beside the binaries.
+$licensesTarget = Join-Path $distAppDir "licenses"
+New-Item -ItemType Directory -Path $licensesTarget -Force | Out-Null
+$licenseFiles = @(
+    @{ Source = (Join-Path $RepoRoot "LICENSE"); Target = "LICENSE.txt" },
+    @{ Source = (Join-Path $RepoRoot "THIRD_PARTY_NOTICES.md"); Target = "THIRD_PARTY_NOTICES.md" },
+    @{ Source = (Join-Path $RepoRoot "scripts\tools_manifest.json"); Target = "tools_manifest.json" }
+)
+foreach ($licenseFile in $licenseFiles) {
+    if (-not (Test-Path -LiteralPath $licenseFile.Source -PathType Leaf)) {
+        throw "Required license/source metadata file not found: $($licenseFile.Source)"
+    }
+    Copy-Item -LiteralPath $licenseFile.Source -Destination (Join-Path $licensesTarget $licenseFile.Target) -Force
+}
+$ytDlpLicensesSource = Join-Path $RepoRoot "licenses\yt-dlp"
+if (-not (Test-Path -LiteralPath (Join-Path $ytDlpLicensesSource "LICENSE.txt") -PathType Leaf) -or
+    -not (Test-Path -LiteralPath (Join-Path $ytDlpLicensesSource "THIRD_PARTY_LICENSES.txt") -PathType Leaf)) {
+    throw "Pinned yt-dlp license files are missing from $ytDlpLicensesSource"
+}
+Copy-Item -LiteralPath $ytDlpLicensesSource -Destination $licensesTarget -Recurse -Force
+Write-Host "[OK] License and pinned tool source metadata copied to $licensesTarget" -ForegroundColor Green
+
 # Verify output
 $mainExe = Join-Path $distAppDir "VideoScreenshotExtractor.exe"
 if (-not (Test-Path $mainExe)) {

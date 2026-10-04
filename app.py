@@ -19,7 +19,9 @@ from gui_core import (
     count_frames,
     create_job_workspace,
     create_zip,
+    detect_platform,
     extract_video_id,
+    extract_url_from_input,
     format_summary,
     get_safe_output_dir,
     kill_process_tree,
@@ -38,8 +40,8 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"{APP_NAME_ZH} v{VERSION}")
-        self.geometry("780x560")
-        self.minsize(680, 480)
+        self.geometry("900x680")
+        self.minsize(760, 580)
 
         self.app_dir = Path(sys.executable if getattr(sys, "frozen", False) else __file__).parent
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
@@ -48,8 +50,19 @@ class App(tk.Tk):
 
         self.active_process: subprocess.Popen | None = None
         self.is_cancelled = False
+        self.job_running = False
         self.active_workspace: Path | None = None
         self.last_task_dir: Path | None = None
+        self.url_rows: list[dict[str, object]] = []
+        self.pending_jobs: list[tuple[str, str]] = []
+        self.batch_choices: tuple[bool, bool, bool, float, str | None] | None = None
+        self.batch_tools: dict[str, str | None] | None = None
+        self.batch_output: Path | None = None
+        self.batch_total = 0
+        self.batch_completed = 0
+        self.batch_successes = 0
+        self.batch_failures = 0
+        self.current_job_number = 0
 
         self.build_ui()
         self.after(100, self.poll_events)
@@ -58,11 +71,16 @@ class App(tk.Tk):
         self.columnconfigure(1, weight=1)
         self.rowconfigure(8, weight=1)
 
-        # Row 0: URL
-        ttk.Label(self, text="影片網址").grid(row=0, column=0, padx=12, pady=8, sticky="w")
-        self.url = ttk.Entry(self)
-        self.url.grid(row=0, column=1, padx=12, pady=8, sticky="ew")
-        ttk.Button(self, text="貼上", command=self.paste_url).grid(row=0, column=2, padx=12, pady=8)
+        # Row 0: one URL/share-text field per queued job
+        jobs_box = ttk.LabelFrame(self, text="下載工作（每列一個網址或一段分享文字）")
+        jobs_box.grid(row=0, column=0, columnspan=3, padx=12, pady=8, sticky="ew")
+        jobs_box.columnconfigure(0, weight=1)
+        self.url_rows_frame = ttk.Frame(jobs_box)
+        self.url_rows_frame.grid(row=0, column=0, padx=8, pady=(6, 2), sticky="ew")
+        self.url_rows_frame.columnconfigure(1, weight=1)
+        self.add_job_button = ttk.Button(jobs_box, text="＋ 新增工作欄位", command=self.add_url_row)
+        self.add_job_button.grid(row=1, column=0, padx=8, pady=(2, 7), sticky="w")
+        self.add_url_row()
 
         # Row 1: Output Folder
         ttk.Label(self, text="輸出資料夾").grid(row=1, column=0, padx=12, pady=5, sticky="w")
@@ -122,6 +140,76 @@ class App(tk.Tk):
         self.log = tk.Text(self, height=14, state="disabled", wrap="word")
         self.log.grid(row=8, column=0, columnspan=3, padx=12, pady=6, sticky="nsew")
 
+    def add_url_row(self, value: str = "") -> None:
+        row_frame = ttk.Frame(self.url_rows_frame)
+        row_frame.grid(column=0, columnspan=5, sticky="ew", pady=3)
+        row_frame.columnconfigure(1, weight=1)
+
+        number_label = ttk.Label(row_frame, width=7)
+        number_label.grid(row=0, column=0, padx=(0, 6), sticky="w")
+        entry = ttk.Entry(row_frame)
+        entry.grid(row=0, column=1, sticky="ew")
+        platform_text = tk.StringVar(value="平台：等待網址")
+        ttk.Label(row_frame, textvariable=platform_text, width=22).grid(row=0, column=2, padx=8, sticky="w")
+
+        row: dict[str, object] = {
+            "frame": row_frame,
+            "number": number_label,
+            "entry": entry,
+            "platform_text": platform_text,
+        }
+        paste_button = ttk.Button(row_frame, text="貼上", width=7, command=lambda: self.paste_url(row))
+        paste_button.grid(row=0, column=3, padx=(0, 5))
+        remove_button = ttk.Button(row_frame, text="移除", width=7, command=lambda: self.remove_url_row(row))
+        remove_button.grid(row=0, column=4)
+        row["paste_button"] = paste_button
+        row["remove_button"] = remove_button
+        entry.bind("<KeyRelease>", lambda _event: self.update_platform_hint(row))
+        if value:
+            entry.insert(0, value)
+        self.url_rows.append(row)
+        self.refresh_url_rows()
+        self.update_platform_hint(row)
+        entry.focus_set()
+
+    def remove_url_row(self, row: dict[str, object]) -> None:
+        if self.job_running:
+            return
+        if len(self.url_rows) == 1:
+            entry = row["entry"]
+            assert isinstance(entry, ttk.Entry)
+            entry.delete(0, tk.END)
+            self.update_platform_hint(row)
+            return
+        frame = row["frame"]
+        assert isinstance(frame, ttk.Frame)
+        frame.destroy()
+        self.url_rows.remove(row)
+        self.refresh_url_rows()
+
+    def refresh_url_rows(self) -> None:
+        for index, row in enumerate(self.url_rows, start=1):
+            frame = row["frame"]
+            number = row["number"]
+            remove_button = row["remove_button"]
+            assert isinstance(frame, ttk.Frame)
+            assert isinstance(number, ttk.Label)
+            assert isinstance(remove_button, ttk.Button)
+            frame.grid(row=index - 1)
+            number.configure(text=f"工作 {index}")
+            remove_button.configure(state="normal" if len(self.url_rows) > 1 else "disabled")
+
+    def set_url_controls_state(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        self.add_job_button.configure(state=state)
+        for row in self.url_rows:
+            for key in ("entry", "paste_button", "remove_button"):
+                widget = row[key]
+                assert isinstance(widget, ttk.Widget)
+                widget.configure(state=state)
+        if enabled:
+            self.refresh_url_rows()
+
     def choose_output(self) -> None:
         folder = filedialog.askdirectory()
         if folder:
@@ -129,12 +217,32 @@ class App(tk.Tk):
             self.output.insert(0, folder)
             save_output_folder(folder)
 
-    def paste_url(self) -> None:
+    def paste_url(self, row: dict[str, object]) -> None:
         try:
-            self.url.delete(0, tk.END)
-            self.url.insert(0, self.clipboard_get())
+            entry = row["entry"]
+            assert isinstance(entry, ttk.Entry)
+            entry.delete(0, tk.END)
+            entry.insert(0, self.clipboard_get())
+            self.update_platform_hint(row)
         except tk.TclError:
             messagebox.showwarning("剪貼簿沒有網址", "請先複製影片網址")
+
+    def update_platform_hint(self, row: dict[str, object]) -> None:
+        entry = row["entry"]
+        platform_text = row["platform_text"]
+        assert isinstance(entry, ttk.Entry)
+        assert isinstance(platform_text, tk.StringVar)
+        value = entry.get().strip()
+        if not value:
+            platform_text.set("平台：等待網址")
+            return
+        try:
+            url = extract_url_from_input(value)
+        except ValueError as exc:
+            hint = "偵測到多個網址" if "偵測到" in str(exc) else "等待有效 HTTP(S) 網址"
+            platform_text.set(f"平台：{hint}")
+            return
+        platform_text.set(f"平台：{detect_platform(url)}")
 
     def open_output_folder(self) -> None:
         target = self.last_task_dir or Path(self.output.get().strip())
@@ -164,19 +272,48 @@ class App(tk.Tk):
             kill_process_tree(self.active_process)
 
     def start(self) -> None:
-        url = self.url.get().strip()
-        output = Path(self.output.get().strip())
-        if not url:
-            messagebox.showwarning("缺少網址", "請貼上公開影片網址")
+        if self.job_running:
+            return
+
+        jobs: list[tuple[str, str]] = []
+        validation_errors: list[str] = []
+        for index, row in enumerate(self.url_rows, start=1):
+            entry = row["entry"]
+            platform_text = row["platform_text"]
+            assert isinstance(entry, ttk.Entry)
+            assert isinstance(platform_text, tk.StringVar)
+            raw_input = entry.get().strip()
+            if not raw_input:
+                continue
+            try:
+                url = extract_url_from_input(raw_input)
+            except ValueError as exc:
+                validation_errors.append(f"工作 {index}：{exc}")
+                self.update_platform_hint(row)
+                continue
+            platform = detect_platform(url)
+            entry.delete(0, tk.END)
+            entry.insert(0, url)
+            platform_text.set(f"平台：{platform}")
+            jobs.append((url, platform))
+
+        if not jobs and not validation_errors:
+            messagebox.showwarning("缺少網址", "請至少建立一個工作並貼上影片網址或分享文字")
+            return
+        if validation_errors:
+            messagebox.showwarning("網址格式錯誤", "\n".join(validation_errors))
             return
         if not any((self.images.get(), self.mp4.get(), self.mp3.get())):
-            messagebox.showwarning("未選擇輸出", "至少勾選一種輸出格式（提取圖片、MP4、MP3）")
+            messagebox.showwarning("尚未選擇輸出", "至少勾選一種輸出格式（擷取圖片、MP4、MP3）")
             return
         if not self.auto_name.get() and not self.name.get().strip():
             messagebox.showwarning("缺少輸出名稱", "請輸入手動輸出名稱，或勾選自動使用影片標題")
             return
+        if len(jobs) > 1 and not self.auto_name.get():
+            messagebox.showwarning("多工作命名衝突", "多個工作請使用自動影片標題；手動名稱只適用單一工作。")
+            return
 
-        # Batch check all tools at once
+        output = Path(self.output.get().strip())
         tools = check_runtime_tools(self.app_dir)
         missing_required = []
         if not tools["ffmpeg"]:
@@ -185,7 +322,6 @@ class App(tk.Tk):
             missing_required.append("• FFprobe (ffprobe.exe)")
         if not tools["yt-dlp"]:
             missing_required.append("• yt-dlp (yt-dlp.exe)")
-
         if missing_required:
             messagebox.showerror(
                 "缺少必要執行元件",
@@ -197,20 +333,47 @@ class App(tk.Tk):
 
         save_output_folder(str(output))
         self.is_cancelled = False
-        self.start_button.configure(state="disabled")
-        self.cancel_button.configure(state="normal")
-        self.open_button.configure(state="disabled")
-        self.progress["value"] = 0
-        self.progress_label.configure(text="0%")
-
-        choices = (
+        self.job_running = True
+        self.pending_jobs = list(jobs)
+        self.batch_total = len(jobs)
+        self.batch_completed = 0
+        self.batch_successes = 0
+        self.batch_failures = 0
+        self.batch_output = output
+        self.batch_tools = tools
+        self.batch_choices = (
             self.images.get(),
             self.mp4.get(),
             self.mp3.get(),
             float(self.threshold.get()),
             self.name.get().strip() if not self.auto_name.get() else None,
         )
-        threading.Thread(target=self.worker, args=(url, output, choices, tools), daemon=True).start()
+        self.start_button.configure(state="disabled")
+        self.cancel_button.configure(state="normal")
+        self.open_button.configure(state="disabled")
+        self.set_url_controls_state(False)
+        self.progress["value"] = 0
+        self.progress_label.configure(text="0%")
+        self.write_log(f"已建立 {self.batch_total} 個工作，將依序處理。")
+        self.start_next_job()
+
+    def start_next_job(self) -> None:
+        if self.is_cancelled or not self.pending_jobs:
+            return
+        assert self.batch_output is not None
+        assert self.batch_choices is not None
+        assert self.batch_tools is not None
+        url, platform = self.pending_jobs.pop(0)
+        self.current_job_number = self.batch_completed + 1
+        self.progress["value"] = 0
+        self.progress_label.configure(text="0%")
+        self.write_log("")
+        self.write_log(f"[工作 {self.current_job_number}/{self.batch_total}] 平台：{platform}")
+        threading.Thread(
+            target=self.worker,
+            args=(url, self.batch_output, self.batch_choices, self.batch_tools),
+            daemon=True,
+        ).start()
 
     def worker(
         self,
@@ -247,7 +410,7 @@ class App(tk.Tk):
                 raise InterruptedError("已由使用者取消")
 
             task_name = resolve_task_name(
-                [downloader_bin], url, deno_bin, manual_name, self.ytdlp_plugin_dir
+                [downloader_bin], url, deno_bin, manual_name, self.ytdlp_plugin_dir, ffmpeg_bin
             )
             self.events.put(("log", f"任務標題：{task_name}"))
 
@@ -257,7 +420,7 @@ class App(tk.Tk):
 
             self.events.put(("status", "階段 2/5：正在下載影片 (0%~65%)…"))
             download_cmd = build_download_args(
-                [downloader_bin], str(source), url, deno_bin, self.ytdlp_plugin_dir
+                [downloader_bin], str(source), url, deno_bin, self.ytdlp_plugin_dir, ffmpeg_bin
             )
             proc = popen_silent(download_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             self.active_process = proc
@@ -414,6 +577,22 @@ class App(tk.Tk):
             self.active_process = None
             self.events.put(("done", None))
 
+    def finish_batch(self, cancelled: bool = False) -> None:
+        self.job_running = False
+        self.pending_jobs.clear()
+        self.start_button.configure(state="normal")
+        self.cancel_button.configure(state="disabled")
+        self.set_url_controls_state(True)
+        if cancelled:
+            self.status.configure(text=f"已取消；停止於工作 {self.batch_completed}/{self.batch_total}")
+        else:
+            self.status.configure(
+                text=f"全部工作結束：成功 {self.batch_successes}，失敗 {self.batch_failures}"
+            )
+            self.write_log(
+                f"批次結果：共 {self.batch_total} 個工作，成功 {self.batch_successes}，失敗 {self.batch_failures}。"
+            )
+
     def poll_events(self) -> None:
         while not self.events.empty():
             kind, value = self.events.get()
@@ -428,6 +607,7 @@ class App(tk.Tk):
             elif kind == "success":
                 data = value if isinstance(value, dict) else {}
                 summary = data.get("summary", "處理完成！")
+                self.batch_successes += 1
                 self.status.configure(text="處理完成！")
                 self.write_log("\n==========================================")
                 self.write_log(summary)
@@ -440,14 +620,20 @@ class App(tk.Tk):
                 data = value if isinstance(value, dict) else {}
                 user_msg = data.get("user_msg", "處理失敗")
                 raw_error = data.get("raw_error", "")
+                self.batch_failures += 1
                 self.status.configure(text=f"錯誤：{user_msg}")
                 self.write_log(f"【錯誤】{user_msg}")
                 if raw_error:
                     self.write_log(f"詳細錯誤訊息：{raw_error}")
-                messagebox.showerror("處理失敗", user_msg)
+                messagebox.showerror(f"工作 {self.current_job_number} 處理失敗", user_msg)
             elif kind == "done":
-                self.start_button.configure(state="normal")
-                self.cancel_button.configure(state="disabled")
+                self.batch_completed += 1
+                if self.is_cancelled:
+                    self.finish_batch(cancelled=True)
+                elif self.pending_jobs:
+                    self.start_next_job()
+                else:
+                    self.finish_batch()
 
         self.after(100, self.poll_events)
 
