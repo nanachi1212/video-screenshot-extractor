@@ -40,6 +40,11 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"{APP_NAME_ZH} v{VERSION}")
+        icon_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+        icon_path = icon_root / "assets" / "morandi" / "app-icon.png"
+        if icon_path.is_file():
+            self._app_icon = tk.PhotoImage(file=str(icon_path))
+            self.iconphoto(True, self._app_icon)
         self.geometry("900x680")
         self.minsize(760, 580)
 
