@@ -26,8 +26,14 @@ Video Screenshot Extractor (影片配圖擷取器) bundles or utilizes several o
 * **Official Website**: https://github.com/yt-dlp/yt-dlp
 * **Release Source**: https://github.com/yt-dlp/yt-dlp/releases
 * **Version**: 2026.08.19
-* **License**: The Unlicense (Public Domain Dedication)
-* **License Text**:
+* **Source License**: The Unlicense (Public Domain Dedication)
+* **Windows Binary License**: The official PyInstaller-bundled `yt-dlp.exe` includes third-party GPLv3-or-later code. yt-dlp upstream therefore identifies the combined executable as GPLv3-or-later.
+* **Exact Binary Source**: https://github.com/yt-dlp/yt-dlp/releases/tag/2026.08.19
+* **Bundled Component License List**: https://github.com/yt-dlp/yt-dlp/blob/2026.08.19/THIRD_PARTY_LICENSES.txt
+* **Packaged License Files**: `licenses/yt-dlp/LICENSE.txt` and `licenses/yt-dlp/THIRD_PARTY_LICENSES.txt` are copied from the exact pinned upstream tag and included in Windows builds.
+* **Source Availability**: The pinned release's third-party license list identifies each bundled component and its original source. The yt-dlp maintainers also provide source on request as described in that file.
+* **Separation**: `yt-dlp.exe` is invoked as a separate process. This notice corrects the binary's license classification without changing Video Screenshot Extractor's MIT-licensed source code.
+* **yt-dlp Source License Text**:
   This is free and unencumbered software released into the public domain.
 
   Anyone is free to copy, modify, publish, use, compile, sell, or
@@ -99,4 +105,4 @@ Video Screenshot Extractor (影片配圖擷取器) bundles or utilizes several o
 * **Source**: https://github.com/tribixbite/yt-dlp-threads
 * **Purpose**: yt-dlp extractor plugin for publicly viewable Threads video posts.
 * **License**: The Unlicense (Public Domain Dedication)
-* **Bundling**: The extractor source is vendored under `plugins/yt_dlp_plugins/extractor/threads.py` and loaded by the bundled yt-dlp executable.
+* **Bundling**: The extractor source is vendored under `plugins/threads/yt_dlp_plugins/extractor/threads.py` and loaded from that fixed application plugin directory by the bundled yt-dlp executable.

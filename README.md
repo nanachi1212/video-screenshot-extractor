@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-一款專為 Windows 設計的桌面 GUI 工具，可下載具有合法存取權限的公開影片（包含公開 Threads、Facebook 與 X / Twitter 影片貼文），並依照畫面場景變化自動擷取代表性截圖。
+一款專為 Windows 設計的桌面 GUI 工具，可下載具有合法存取權限的公開影片（包含抖音、TikTok、Facebook Reels、Instagram Reels、Threads 與 X / Twitter 公開影片貼文），並依照畫面場景變化自動擷取代表性截圖。
 
 除了場景截圖之外，也可選擇輸出：
 
@@ -58,6 +58,24 @@ This project is individually maintained by [nanachi1212](https://github.com/nana
 - 自行安裝 Deno
 - 手動修改 Windows PATH
 - 使用 PowerShell 或 CMD 啟動程式
+
+---
+
+### 分享文字與短影音平台
+
+可直接貼上單一網址，或貼上包含單一網址的分享文字；程式會抽取 HTTP(S) 網址、辨識平台，再沿用既有的標題解析、MP4 下載與場景截圖流程。新增辨識範圍包括：
+
+若要一次建立多個工作，按「＋ 新增工作欄位」，每列貼上一個網址或一段分享文字。工作會依列序逐一執行；任一列包含多個網址時會明確提示，避免把不同連結誤當成同一工作。多工作模式使用自動影片標題，取消時會停止目前工作並清空尚未執行的佇列。
+
+```text
+https://v.douyin.com/...
+https://www.douyin.com/video/...
+https://www.tiktok.com/@user/video/...
+https://www.facebook.com/reel/...
+https://www.instagram.com/reel/...
+```
+
+應用程式本身沒有廣告，也不設定下載次數配額。平台仍可能要求登入或 cookies、限制請求頻率、限制地區，或變更頁面結構；列入支援範圍不代表每支影片都能免登入下載。程式不會自動讀取瀏覽器 cookies，不會繞過私人、付費、DRM 或其他存取限制，也不會把連結交給不明解析網站或下載遠端腳本。一次貼上多個網址時會要求改為單一網址。
 
 ---
 
