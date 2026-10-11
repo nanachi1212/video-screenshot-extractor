@@ -275,6 +275,12 @@ class App(tk.Tk):
         if self.job_running:
             return
 
+        try:
+            threshold = float(self.threshold.get())
+        except ValueError:
+            messagebox.showwarning("敏感度格式錯誤", "請輸入有效的敏感度數值。")
+            return
+
         jobs: list[tuple[str, str]] = []
         validation_errors: list[str] = []
         for index, row in enumerate(self.url_rows, start=1):
@@ -345,7 +351,7 @@ class App(tk.Tk):
             self.images.get(),
             self.mp4.get(),
             self.mp3.get(),
-            float(self.threshold.get()),
+            threshold,
             self.name.get().strip() if not self.auto_name.get() else None,
         )
         self.start_button.configure(state="disabled")
@@ -374,6 +380,21 @@ class App(tk.Tk):
             args=(url, self.batch_output, self.batch_choices, self.batch_tools),
             daemon=True,
         ).start()
+
+    def _register_process(self, proc: subprocess.Popen | None) -> None:
+        self.active_process = proc
+        if proc is not None and self.is_cancelled:
+            kill_process_tree(proc)
+
+    def _wait_for_process(self, proc: subprocess.Popen) -> int:
+        if self.is_cancelled:
+            kill_process_tree(proc)
+        try:
+            return proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            kill_process_tree(proc)
+            proc.kill()
+            return proc.wait(timeout=5)
 
     def worker(
         self,
@@ -410,7 +431,8 @@ class App(tk.Tk):
                 raise InterruptedError("已由使用者取消")
 
             task_name = resolve_task_name(
-                [downloader_bin], url, deno_bin, manual_name, self.ytdlp_plugin_dir, ffmpeg_bin
+                [downloader_bin], url, deno_bin, manual_name, self.ytdlp_plugin_dir, ffmpeg_bin,
+                on_process=self._register_process, is_cancelled=lambda: self.is_cancelled,
             )
             self.events.put(("log", f"任務標題：{task_name}"))
 
@@ -423,7 +445,7 @@ class App(tk.Tk):
                 [downloader_bin], str(source), url, deno_bin, self.ytdlp_plugin_dir, ffmpeg_bin
             )
             proc = popen_silent(download_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            self.active_process = proc
+            self._register_process(proc)
             assert proc.stdout is not None
 
             download_error_lines: list[str] = []
@@ -443,7 +465,7 @@ class App(tk.Tk):
                     except ValueError:
                         pass
 
-            ret = proc.wait()
+            ret = self._wait_for_process(proc)
             self.active_process = None
             if self.is_cancelled:
                 raise InterruptedError("已由使用者取消")
@@ -473,7 +495,7 @@ class App(tk.Tk):
                 target_mp3 = task_output_dir / f"{task_name}.mp3"
                 mp3_cmd = [ffmpeg_bin, "-y", "-i", str(source), "-vn", "-q:a", "2", str(target_mp3)]
                 proc = popen_silent(mp3_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                self.active_process = proc
+                self._register_process(proc)
                 _, err = proc.communicate()
                 self.active_process = None
                 if self.is_cancelled:
@@ -521,7 +543,7 @@ class App(tk.Tk):
                     frame_target_spec,
                 ]
                 proc = popen_silent(extract_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                self.active_process = proc
+                self._register_process(proc)
                 assert proc.stdout is not None
 
                 for line in proc.stdout:
@@ -534,7 +556,7 @@ class App(tk.Tk):
                     if current_count:
                         self.events.put(("status", f"階段 4/5：偵測切換中…目前已擷取 {current_count} 張圖片"))
 
-                ret = proc.wait()
+                ret = self._wait_for_process(proc)
                 self.active_process = None
                 if self.is_cancelled:
                     raise InterruptedError("已由使用者取消")

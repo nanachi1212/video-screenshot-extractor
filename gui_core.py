@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -32,6 +33,10 @@ PLATFORM_DOMAINS: tuple[tuple[str, tuple[str, ...]], ...] = (
 def _host_matches(host: str, domain: str) -> bool:
     """Match an exact hostname or a real subdomain, never a lookalike suffix."""
     return host == domain or host.endswith(f".{domain}")
+
+
+def _normalize_host(host: str | None) -> str:
+    return (host or "").lower().rstrip(".")
 
 
 def extract_url_from_input(value: str) -> str:
@@ -61,7 +66,7 @@ def detect_platform(url: str) -> str:
         return "其他網站"
     if parsed.scheme.lower() not in {"http", "https"}:
         return "其他網站"
-    host = (parsed.hostname or "").lower().rstrip(".")
+    host = _normalize_host(parsed.hostname)
     for platform, domains in PLATFORM_DOMAINS:
         if any(_host_matches(host, domain) for domain in domains):
             return platform
@@ -235,7 +240,7 @@ def sanitize_task_name(name: str) -> str:
 def extract_video_id(url: str) -> str | None:
     """Extract a stable video/post identifier from supported URL shapes when available."""
     parsed = urlsplit(url)
-    host = (parsed.hostname or "").lower()
+    host = _normalize_host(parsed.hostname)
     if host == "fb.watch":
         return next((part for part in parsed.path.split("/") if part), None)
     if host in {"x.com", "twitter.com"} or host.endswith(".x.com") or host.endswith(".twitter.com"):
@@ -267,14 +272,22 @@ def extract_video_id(url: str) -> str | None:
         if match := re.search(r"/(?:reel|reels|p)/([A-Za-z0-9_-]+)", parsed.path, re.IGNORECASE):
             return match.group(1)
 
-    patterns = [
-        r"(?:v=|\/v\/|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})",
-        r"[?&]v=([A-Za-z0-9_-]+)",
-        r"threads\.(?:com|net)\/(?:@[^/?#]+\/post|t)\/([A-Za-z0-9_-]+)",
-        r"threads\.(?:com|net)\/share\/([A-Za-z0-9_-]+)",
-    ]
+    if any(_host_matches(host, domain) for domain in ("youtube.com", "youtu.be")):
+        patterns = [
+            r"(?:v=|/v/|embed/|shorts/|live/)([A-Za-z0-9_-]{11})",
+            r"[?&]v=([A-Za-z0-9_-]+)",
+        ]
+        if _host_matches(host, "youtu.be"):
+            patterns.insert(0, r"^/([A-Za-z0-9_-]{11})")
+    elif any(_host_matches(host, domain) for domain in ("threads.com", "threads.net")):
+        patterns = [
+            r"/(?:@[^/?#]+/post|t)/([A-Za-z0-9_-]+)",
+            r"/share/([A-Za-z0-9_-]+)",
+        ]
+    else:
+        return None
     for p in patterns:
-        if m := re.search(p, url):
+        if m := re.search(p, parsed.path + "?" + parsed.query):
             return m.group(1)
     return None
 
@@ -338,22 +351,40 @@ def resolve_task_name(
     manual_name: str | None = None,
     plugin_dir: str | None = None,
     ffmpeg_location: str | None = None,
+    on_process: Callable[[subprocess.Popen | None], None] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> str:
     """Retrieve video title or return sanitized manual name."""
     if manual_name and manual_name.strip():
         return sanitize_task_name(manual_name)
     common = build_ytdlp_common_args(js_runtime, plugin_dir, ffmpeg_location)
-    result = run_silent(
+    proc = popen_silent(
         downloader + common + ["--no-playlist", "--get-title", "--", url],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
     )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(detail or f"無法取得影片資訊，yt-dlp 返回碼：{result.returncode}")
-    lines = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
-    return sanitize_task_name(lines[-1] if lines else "video")
+    try:
+        if on_process:
+            on_process(proc)
+        if is_cancelled and is_cancelled():
+            raise InterruptedError("已由使用者取消")
+        out, err = proc.communicate(timeout=30)
+        if is_cancelled and is_cancelled():
+            raise InterruptedError("已由使用者取消")
+        if proc.returncode != 0:
+            detail = (err or out or "").strip()
+            raise RuntimeError(detail or f"無法取得影片資訊，yt-dlp 返回碼：{proc.returncode}")
+        lines = [line.strip() for line in out.strip().splitlines() if line.strip()]
+        return sanitize_task_name(lines[-1] if lines else "video")
+    except (subprocess.TimeoutExpired, InterruptedError):
+        kill_process_tree(proc)
+        proc.kill()
+        proc.wait(timeout=5)
+        raise
+    finally:
+        if on_process:
+            on_process(None)
 
 
 def build_download_args(

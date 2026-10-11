@@ -1,12 +1,15 @@
 import os
+import queue
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import gui_core
+import app
 from gui_core import (
     build_download_args,
     build_ytdlp_common_args,
@@ -87,8 +90,9 @@ class GuiCoreTests(unittest.TestCase):
         self.assertEqual(args[-2:], ["--", url])
 
     def test_metadata_command_pins_ffmpeg_and_separates_url(self):
-        result = type("Result", (), {"stdout": "Title\n", "stderr": "", "returncode": 0})()
-        with patch("gui_core.run_silent", return_value=result) as run:
+        proc = MagicMock(returncode=0)
+        proc.communicate.return_value = ("Title\n", "")
+        with patch("gui_core.subprocess.Popen", return_value=proc) as run:
             resolve_task_name(
                 ["yt-dlp"], "https://example.com/--help", None,
                 plugin_dir=r"C:\app\plugins", ffmpeg_location=r"C:\app\tools\ffmpeg.exe",
@@ -188,10 +192,191 @@ class GuiCoreTests(unittest.TestCase):
         self.assertEqual(resolve_task_name(["unused"], "url", None, "my:video"), "my_video")
 
     def test_auto_task_name_uses_title(self):
-        result = type("Result", (), {"stdout": "A\nTitle\n", "stderr": "", "returncode": 0})()
-        with patch("gui_core.run_silent", return_value=result) as run:
+        proc = MagicMock(returncode=0)
+        proc.communicate.return_value = ("A\nTitle\n", "")
+        with patch("gui_core.subprocess.Popen", return_value=proc) as run:
             self.assertEqual(resolve_task_name(["yt-dlp"], "url", r"C:\deno.exe"), "Title")
             run.assert_called_once()
+
+    def test_invalid_sensitivity_keeps_ui_unlocked(self):
+        for value in ("", "not-a-number"):
+            with self.subTest(value=value):
+                state = MagicMock()
+                state.job_running = False
+                state.is_cancelled = True
+                state.threshold.get.return_value = value
+                entry = MagicMock(spec=app.ttk.Entry)
+                entry.get.return_value = "https://youtube.com/watch?v=dQw4w9WgXcQ"
+                state.url_rows = [{"entry": entry, "platform_text": MagicMock(spec=app.tk.StringVar)}]
+                state.images.get.return_value = True
+                state.auto_name.get.return_value = True
+                state.output.get.return_value = "."
+                tools = {name: name for name in ("ffmpeg", "ffprobe", "yt-dlp", "deno")}
+                with patch("app.check_runtime_tools", return_value=tools), \
+                        patch("app.save_output_folder") as save, \
+                        patch("app.messagebox.showwarning") as warning:
+                    app.App.start(state)
+                warning.assert_called_once()
+                self.assertFalse(state.job_running)
+                self.assertTrue(state.is_cancelled)
+                entry.delete.assert_not_called()
+                save.assert_not_called()
+                state.start_button.configure.assert_not_called()
+                state.start_next_job.assert_not_called()
+
+    def _worker_state(self):
+        state = SimpleNamespace(
+            is_cancelled=False, active_process=None, active_workspace=None,
+            ytdlp_plugin_dir=None, events=queue.Queue(), cancel_button=MagicMock(),
+        )
+        state._register_process = lambda proc: app.App._register_process(state, proc)
+        state._wait_for_process = lambda proc: app.App._wait_for_process(state, proc)
+        return state
+
+    def _run_mock_worker(self, state, choices=(False, False, False, 0.3, None)):
+        tools = {name: name for name in ("ffmpeg", "ffprobe", "yt-dlp", "deno")}
+        with patch("app.create_job_workspace", return_value=Path("mock-workspace")), \
+                patch("app.cleanup_job_workspace"):
+            app.App.worker(state, "https://youtube.com/watch?v=dQw4w9WgXcQ", Path("."), choices, tools)
+        return list(state.events.queue)
+
+    def test_title_lookup_registers_process_and_cancel_terminates_it(self):
+        state = self._worker_state()
+        proc = MagicMock(returncode=-9)
+        observed = []
+
+        def communicate(*, timeout):
+            self.assertGreater(timeout, 0)
+            self.assertLessEqual(timeout, 30)
+            observed.append(state.active_process)
+            app.App.cancel(state)
+            return "", "cancelled"
+
+        proc.communicate.side_effect = communicate
+        result = subprocess.CompletedProcess([], 0, "Title\n", "")
+        with patch("gui_core.subprocess.Popen", return_value=proc), \
+                patch("gui_core.subprocess.run", return_value=result), \
+                patch("gui_core.kill_process_tree") as title_kill, \
+                patch("app.kill_process_tree") as cancel_kill, \
+                patch("app.popen_silent", side_effect=AssertionError("download must not start")):
+            events = self._run_mock_worker(state)
+        self.assertEqual(observed, [proc])
+        cancel_kill.assert_called_once_with(proc)
+        title_kill.assert_called_once_with(proc)
+        proc.kill.assert_called_once()
+        proc.wait.assert_called_once_with(timeout=5)
+        self.assertIsNone(state.active_process)
+        self.assertIn(("cancelled", None), events)
+
+    def test_title_lookup_timeout_kills_process_and_clears_registration(self):
+        state = self._worker_state()
+        proc = MagicMock()
+        proc.communicate.side_effect = subprocess.TimeoutExpired(["yt-dlp"], 30)
+        result = subprocess.CompletedProcess([], 0, "Title\n", "")
+        with patch("gui_core.subprocess.Popen", return_value=proc), \
+                patch("gui_core.subprocess.run", return_value=result), \
+                patch("gui_core.kill_process_tree") as kill, \
+                patch("app.popen_silent", side_effect=AssertionError("download must not start")):
+            events = self._run_mock_worker(state)
+        proc.communicate.assert_called_once_with(timeout=30)
+        kill.assert_called_once_with(proc)
+        proc.kill.assert_called_once()
+        proc.wait.assert_called_once_with(timeout=5)
+        self.assertIsNone(state.active_process)
+        errors = [value["raw_error"] for kind, value in events if kind == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("timed out", errors[0])
+
+    def test_cancel_around_download_registration_terminates_before_wait(self):
+        for timing in ("before_registration", "after_registration"):
+            with self.subTest(timing=timing):
+                state = self._worker_state()
+                proc = MagicMock()
+                killed = []
+
+                def start_process(*args, **kwargs):
+                    if timing == "before_registration":
+                        app.App.cancel(state)
+                    return proc
+
+                class Stdout:
+                    def __iter__(self):
+                        if timing == "before_registration":
+                            self_outer.assertIn(proc, killed)
+                        else:
+                            # Reproduce a cancellation after assignment and at EOF.
+                            state.is_cancelled = True
+                        return iter(())
+
+                self_outer = self
+                proc.stdout = Stdout()
+
+                def wait(*, timeout):
+                    self.assertGreater(timeout, 0)
+                    self.assertLessEqual(timeout, 5)
+                    self.assertIn(proc, killed)
+                    return -9
+
+                proc.wait.side_effect = wait
+                with patch("app.resolve_task_name", return_value="Title"), \
+                        patch("app.popen_silent", side_effect=start_process), \
+                        patch("app.kill_process_tree", side_effect=lambda p: killed.append(p)):
+                    events = self._run_mock_worker(state)
+                proc.wait.assert_called_once_with(timeout=5)
+                self.assertIn(("cancelled", None), events)
+                self.assertIsNone(state.active_process)
+
+    def test_cancel_wait_timeout_escalates_to_kill_and_bounded_wait(self):
+        state = self._worker_state()
+        proc = MagicMock(stdout=iter(()))
+
+        def start_process(*args, **kwargs):
+            state.is_cancelled = True
+            return proc
+
+        def wait(*, timeout):
+            self.assertGreater(timeout, 0)
+            self.assertLessEqual(timeout, 5)
+            if not proc.kill.called:
+                raise subprocess.TimeoutExpired(["yt-dlp"], timeout)
+            return -9
+
+        proc.wait.side_effect = wait
+        with patch("app.resolve_task_name", return_value="Title"), \
+                patch("app.popen_silent", side_effect=start_process), \
+                patch("app.kill_process_tree") as kill:
+            events = self._run_mock_worker(state)
+        self.assertEqual(proc.wait.call_count, 2)
+        proc.kill.assert_called_once()
+        self.assertTrue(kill.called)
+        self.assertIn(("cancelled", None), events)
+        self.assertIsNone(state.active_process)
+
+    def test_extract_video_id_normalizes_trailing_hostname_dot(self):
+        cases = {
+            "https://WWW.FACEBOOK.COM./reel/1402267627510544/": ("Facebook", "1402267627510544"),
+            "https://WWW.YOUTU.BE./dQw4w9WgXcQ": ("YouTube", "dQw4w9WgXcQ"),
+            "https://WWW.YOUTUBE.COM./watch?v=dQw4w9WgXcQ": ("YouTube", "dQw4w9WgXcQ"),
+            "https://WWW.THREADS.COM./@demo/post/ABC123": ("Threads", "ABC123"),
+        }
+        for url, (platform, video_id) in cases.items():
+            with self.subTest(url=url):
+                self.assertEqual(detect_platform(url), platform)
+                self.assertEqual(extract_video_id(url), video_id)
+
+    def test_extract_video_id_restricts_fallback_to_platform_hosts(self):
+        urls = (
+            "https://evil.example.com/watch?v=XXXXXXXXXXX",
+            "https://youtube.com.evil.example/shorts/XXXXXXXXXXX",
+            "https://evil.example.com/youtu.be/XXXXXXXXXXX",
+            "https://evil.example.com/threads.com/@demo/post/ABC123",
+            "https://threads.com/watch?v=XXXXXXXXXXX",
+            "https://youtube.com/threads.com/@demo/post/ABC123",
+            "https://instagram.com/watch?v=XXXXXXXXXXX",
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertIsNone(extract_video_id(url))
 
     def test_sanitize_task_name_removes_illegal_characters(self):
         self.assertEqual(sanitize_task_name('foo:bar*baz?test"one<two>three|four'), "foo_bar_baz_test_one_two_three_four")
