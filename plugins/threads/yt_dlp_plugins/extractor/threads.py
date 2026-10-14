@@ -233,6 +233,12 @@ class ThreadsIE(InfoExtractor):
                 or post.get('carousel_media')):
             media = traverse_obj(
                 post, ('text_post_app_info', 'linked_inline_media', {dict})) or post
+            # Some share-text wrappers put an Instagram Reel in the quoted
+            # attachment instead of linked_inline_media (Threads media_type 19).
+            if not (media.get('video_versions') or media.get('video_dash_manifest')
+                    or media.get('carousel_media')):
+                media = traverse_obj(
+                    post, ('text_post_app_info', 'share_info', 'quoted_attachment_post', {dict})) or media
 
         carousel = media.get('carousel_media')
         if isinstance(carousel, list) and carousel:
