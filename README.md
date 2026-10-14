@@ -495,7 +495,7 @@ v2.7.0 是一次以「一般使用者可以直接安裝使用」為主要目標�
 |---|---:|---|
 | FFmpeg / ffprobe | 9.0.1 Essentials | 影片解析、轉檔、場景擷取 |
 | yt-dlp | 2026.08.19 | 公開影片下載 |
-| Deno | 2.9.6 | yt-dlp JavaScript Runtime |
+| Deno | 2.9.7 | yt-dlp JavaScript Runtime |
 | Python | PyInstaller 打包 Runtime | GUI 與程式邏輯 |
 
 這些元件會隨正式版一起提供。
@@ -754,7 +754,7 @@ tag 上建立。
 
 ### Deno
 
-- Version：2.9.6
+- Version：2.9.7
 - License：MIT License
 
 ---

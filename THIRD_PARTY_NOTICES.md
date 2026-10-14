@@ -1,4 +1,4 @@
-﻿# Third-Party Notices and Licenses
+# Third-Party Notices and Licenses
 
 Video Screenshot Extractor (影片配圖擷取器) bundles or utilizes several open-source components. This document provides precise information on these third-party packages, their official sources, and their corresponding licenses.
 
@@ -64,7 +64,7 @@ Video Screenshot Extractor (影片配圖擷取器) bundles or utilizes several o
 * **Project**: Deno
 * **Official Website**: https://deno.land
 * **Official Repository**: https://github.com/denoland/deno
-* **Version**: 2.9.6
+* **Version**: 2.9.7
 * **License**: MIT License
 * **Copyright**: Copyright 2018-2026 the Deno authors.
 * **License Text**:
