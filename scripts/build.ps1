@@ -67,20 +67,9 @@ if ($missing) {
 
 # 3. Locate and run PyInstaller
 Write-Host "[3/5] Building with PyInstaller (onedir + windowed)..." -ForegroundColor Yellow
-$pyinstallerCmd = $null
-$venvPyinstaller = Join-Path $RepoRoot ".venv\Scripts\pyinstaller.exe"
-if (Test-Path $venvPyinstaller) {
-    $pyinstallerCmd = $venvPyinstaller
-} elseif (Get-Command pyinstaller.exe -ErrorAction SilentlyContinue) {
-    $pyinstallerCmd = (Get-Command pyinstaller.exe).Source
-}
-
-if (-not $pyinstallerCmd) {
-    throw "PyInstaller was not found in .venv or PATH. Please install it with 'pip install pyinstaller'."
-}
-
-Write-Host "Invoking PyInstaller: $pyinstallerCmd" -ForegroundColor Cyan
-& $pyinstallerCmd VideoScreenshotExtractor.spec --clean --noconfirm
+# Run via the interpreter: the venv's pyinstaller.exe launcher breaks when the venv path changes.
+Write-Host "Invoking PyInstaller: $pythonExe -m PyInstaller" -ForegroundColor Cyan
+& $pythonExe -m PyInstaller VideoScreenshotExtractor.spec --clean --noconfirm
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller build failed!"
 }

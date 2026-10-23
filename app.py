@@ -35,6 +35,8 @@ from gui_core import (
 )
 from version import APP_NAME_ZH, VERSION
 
+DOWNLOAD_ATTEMPTS = 3
+
 
 class App(tk.Tk):
     def __init__(self) -> None:
@@ -446,36 +448,42 @@ class App(tk.Tk):
                 raise InterruptedError("已由使用者取消")
 
             self.events.put(("status", "階段 2/5：正在下載影片 (0%~65%)…"))
-            download_cmd = build_download_args(
-                [downloader_bin], str(source), url, deno_bin, self.ytdlp_plugin_dir, ffmpeg_bin
-            )
-            proc = popen_silent(download_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            self._register_process(proc)
-            assert proc.stdout is not None
+            # YouTube intermittently 403s a fetched link; re-running yt-dlp fetches fresh links.
+            for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+                download_cmd = build_download_args(
+                    [downloader_bin], str(source), url, deno_bin, self.ytdlp_plugin_dir, ffmpeg_bin
+                )
+                proc = popen_silent(download_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                self._register_process(proc)
+                assert proc.stdout is not None
 
-            download_error_lines: list[str] = []
-            for line in proc.stdout:
+                download_error_lines: list[str] = []
+                for line in proc.stdout:
+                    if self.is_cancelled:
+                        break
+                    line = line.rstrip()
+                    self.events.put(("log", line))
+                    if line:
+                        download_error_lines.append(line)
+                        download_error_lines = download_error_lines[-8:]
+                    if "[download]" in line and "%" in line:
+                        try:
+                            percent_str = line.split("%", 1)[0].rsplit(" ", 1)[-1]
+                            percent = float(percent_str)
+                            self.events.put(("progress", percent * 0.65))
+                        except ValueError:
+                            pass
+
+                ret = self._wait_for_process(proc)
+                self.active_process = None
                 if self.is_cancelled:
+                    raise InterruptedError("已由使用者取消")
+                if ret == 0:
                     break
-                line = line.rstrip()
-                self.events.put(("log", line))
-                if line:
-                    download_error_lines.append(line)
-                    download_error_lines = download_error_lines[-8:]
-                if "[download]" in line and "%" in line:
-                    try:
-                        percent_str = line.split("%", 1)[0].rsplit(" ", 1)[-1]
-                        percent = float(percent_str)
-                        self.events.put(("progress", percent * 0.65))
-                    except ValueError:
-                        pass
-
-            ret = self._wait_for_process(proc)
-            self.active_process = None
-            if self.is_cancelled:
-                raise InterruptedError("已由使用者取消")
-            if ret != 0:
                 detail = "\n".join(download_error_lines)
+                if attempt < DOWNLOAD_ATTEMPTS and "HTTP Error 403" in detail:
+                    self.events.put(("log", f"YouTube 暫時拒絕連結 (403)，重新取得連結再試（{attempt + 1}/{DOWNLOAD_ATTEMPTS}）…"))
+                    continue
                 raise RuntimeError(detail or f"影片下載失敗，yt-dlp 返回碼：{ret}")
 
             # Non-destructive target directory under output folder
